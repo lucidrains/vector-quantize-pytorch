@@ -14,7 +14,7 @@ $ pip install vector-quantize-pytorch
 
 ```python
 import torch
-from vector_quantizer_pytorch import VectorQuantize
+from vector_quantize_pytorch import VectorQuantize
 
 vq = VectorQuantize(
 	dim = 256,
