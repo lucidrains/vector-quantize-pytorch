@@ -1,0 +1,1 @@
+from vector_quantizer_pytorch.vector_quantizer_pytorch import VectorQuantize
