@@ -19,7 +19,7 @@ from vector_quantize_pytorch import VectorQuantize
 vq = VectorQuantize(
     dim = 256,
     n_embed = 512,     # size of the dictionary
-    decay = 0.8, 	   # the exponential moving average decay, lower means the dictionary will change faster
+    decay = 0.8,       # the exponential moving average decay, lower means the dictionary will change faster
     commitment = 1.    # the weight on the commitment loss
 )
 
