@@ -24,5 +24,5 @@ vq = VectorQuantize(
 )
 
 x = torch.randn(1, 1024, 256)
-quantized, commit_loss = vq(x) # (1, 1024, 256), (1)
+quantized, indices, commit_loss = vq(x) # (1, 1024, 256), (1, 1024), (1)
 ```
