@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'vector_quantize_pytorch',
   packages = find_packages(),
-  version = '0.0.2',
+  version = '0.1.0',
   license='MIT',
   description = 'Simple Vector Quantization, in Pytorch',
   author = 'Phil Wang',

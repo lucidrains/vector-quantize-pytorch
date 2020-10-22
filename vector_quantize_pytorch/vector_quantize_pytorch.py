@@ -46,4 +46,4 @@ class VectorQuantize(nn.Module):
 
         loss = F.mse_loss(quantize.detach(), input) * self.commitment
         quantize = input + (quantize - input).detach()
-        return quantize, loss
+        return quantize, embed_ind, loss
