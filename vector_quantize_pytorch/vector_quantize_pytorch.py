@@ -38,6 +38,10 @@ class VectorQuantize(nn.Module):
         self.register_buffer('cluster_size', torch.zeros(n_embed))
         self.register_buffer('embed_avg', embed.clone())
 
+    @property
+    def codebook(self):
+        return self.embed.transpose(0, 1)
+
     def forward(self, input):
         dtype = input.dtype
         flatten = input.reshape(-1, self.dim)
