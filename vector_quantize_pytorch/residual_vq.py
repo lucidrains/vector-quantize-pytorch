@@ -8,11 +8,10 @@ class ResidualVQ(nn.Module):
         self,
         *,
         num_quantizers,
-        n_embed,
         **kwargs
     ):
         super().__init__()
-        self.layers = nn.ModuleList([VectorQuantize(n_embed = n_embed, **kwargs) for _ in range(num_quantizers)])
+        self.layers = nn.ModuleList([VectorQuantize(**kwargs) for _ in range(num_quantizers)])
 
     def forward(self, x):
         quantized_out = 0.

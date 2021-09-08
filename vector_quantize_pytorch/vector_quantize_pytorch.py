@@ -2,6 +2,12 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+def exists(val):
+    return val is not None
+
+def default(val, d):
+    return val if exists(val) else d
+
 def ema_inplace(moving_avg, new, decay):
     moving_avg.data.mul_(decay).add_(new, alpha = (1 - decay))
 
@@ -12,12 +18,14 @@ class VectorQuantize(nn.Module):
     def __init__(
         self,
         dim,
-        n_embed,
+        codebook_size,
         decay = 0.8,
         commitment = 1.,
-        eps = 1e-5
+        eps = 1e-5,
+        n_embed = None,
     ):
         super().__init__()
+        n_embed = default(n_embed, codebook_size)
 
         self.dim = dim
         self.n_embed = n_embed

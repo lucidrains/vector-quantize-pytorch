@@ -18,9 +18,9 @@ from vector_quantize_pytorch import VectorQuantize
 
 vq = VectorQuantize(
     dim = 256,
-    n_embed = 512,     # size of the dictionary
-    decay = 0.8,       # the exponential moving average decay, lower means the dictionary will change faster
-    commitment = 1.    # the weight on the commitment loss
+    codebook_size = 512,     # codebook size
+    decay = 0.8,             # the exponential moving average decay, lower means the dictionary will change faster
+    commitment = 1.          # the weight on the commitment loss
 )
 
 x = torch.randn(1, 1024, 256)
@@ -38,7 +38,7 @@ from vector_quantize_pytorch import ResidualVQ
 residual_vq = ResidualVQ(
     dim = 256,
     num_quantizers = 8,      # specify number of quantizers
-    n_embed = 1024,          # codebook size
+    codebook_size = 1024,    # codebook size
 )
 
 x = torch.randn(1, 1024, 256)
