@@ -57,8 +57,6 @@ class VectorQuantize(nn.Module):
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
-
-        self.dim = dim
         self.n_embed = n_embed
 
         codebook_dim = default(codebook_dim, dim)
