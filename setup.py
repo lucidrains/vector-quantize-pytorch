@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'vector_quantize_pytorch',
   packages = find_packages(),
-  version = '0.2.2',
+  version = '0.3.0',
   license='MIT',
   description = 'Vector Quantization - Pytorch',
   author = 'Phil Wang',
@@ -16,6 +16,7 @@ setup(
     'quantization'
   ],
   install_requires=[
+    'einops',
     'torch'
   ],
   classifiers=[

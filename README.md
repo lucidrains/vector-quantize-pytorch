@@ -48,6 +48,26 @@ quantized, indices, commit_loss = residual_vq(x)
 # (batch, seq, dim), (quantizer, batch, seq), (quantizer, batch)
 ```
 
+## Initialization
+
+The SoundStream paper proposes that the codebook should be initialized by the kmeans centroids of the first batch. You can easily turn on this feature with one flag `kmeans_init = True`, for either `VectorQuantize` or `ResidualVQ` class
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualVQ
+
+residual_vq = ResidualVQ(
+    dim = 256,
+    codebook_size = 256,
+    num_quantizers = 4,
+    kmeans_init = True,   # set to True
+    kmeans_iters = 10     # number of kmeans iterations to calculate the centroids for the codebook on init
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, commit_loss = residual_vq(x)
+```
+
 ## Citations
 
 ```bibtex
