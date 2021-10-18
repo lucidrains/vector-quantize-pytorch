@@ -52,19 +52,26 @@ class VectorQuantize(nn.Module):
         eps = 1e-5,
         n_embed = None,
         kmeans_init = False,
-        kmeans_iters = 10
+        kmeans_iters = 10,
+        codebook_dim = None
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
 
         self.dim = dim
         self.n_embed = n_embed
+
+        codebook_dim = default(codebook_dim, dim)
+        requires_projection = codebook_dim != dim
+        self.project_in = nn.Linear(dim, codebook_dim) if requires_projection else nn.Identity()
+        self.project_out = nn.Linear(codebook_dim, dim) if requires_projection else nn.Identity()
+
         self.decay = decay
         self.eps = eps
         self.commitment = commitment
 
         init_fn = torch.randn if not kmeans_init else torch.zeros
-        embed = init_fn(dim, n_embed)
+        embed = init_fn(codebook_dim, n_embed)
 
         self.kmeans_iters = kmeans_iters
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
@@ -83,11 +90,13 @@ class VectorQuantize(nn.Module):
         self.initted.data.copy_(torch.Tensor([True]))
 
     def forward(self, input):
+        input = self.project_in(input)
+
         if not self.initted:
             self.init_embed_(input)
 
         dtype = input.dtype
-        flatten = input.reshape(-1, self.dim)
+        flatten = rearrange(input, '... d -> (...) d')
         dist = (
             flatten.pow(2).sum(1, keepdim=True)
             - 2 * flatten @ self.embed
@@ -112,4 +121,5 @@ class VectorQuantize(nn.Module):
             commit_loss = F.mse_loss(quantize.detach(), input) * self.commitment
             quantize = input + (quantize - input).detach()
 
+        quantize = self.project_out(quantize)
         return quantize, embed_ind, commit_loss

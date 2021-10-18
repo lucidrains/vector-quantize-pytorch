@@ -68,6 +68,28 @@ x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = residual_vq(x)
 ```
 
+## Increasing codebook usage
+
+This repository will contain a few techniques from various papers to combat "dead" codebook entries, which is a common problem when using vector quantizers.
+
+### Lower codebook dimension
+
+The <a href="https://openreview.net/forum?id=pfNyExj7z2">Improved VQGAN paper</a> proposes to have the codebook kept in a lower dimension. The encoder values are projected down before being projected back to high dimensional after quantization. You can set this with the `codebook_dim` hyperparameter.
+
+```python
+import torch
+from vector_quantize_pytorch import VectorQuantize
+
+vq = VectorQuantize(
+    dim = 256,
+    codebook_size = 256,
+    codebook_dim = 16      # paper proposes setting this to 32 or as low as 8 to increase codebook usage
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, commit_loss = vq(x)
+```
+
 ## Citations
 
 ```bibtex
@@ -89,5 +111,16 @@ quantized, indices, commit_loss = residual_vq(x)
     eprint  = {2107.03312},
     archivePrefix = {arXiv},
     primaryClass = {cs.SD}
+}
+```
+
+```bibtex
+@inproceedings{anonymous2022vectorquantized,
+    title   = {Vector-quantized Image Modeling with Improved {VQGAN}},
+    author  = {Anonymous},
+    booktitle = {Submitted to The Tenth International Conference on Learning Representations },
+    year    = {2022},
+    url     = {https://openreview.net/forum?id=pfNyExj7z2},
+    note    = {under review}
 }
 ```
