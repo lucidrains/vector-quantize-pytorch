@@ -18,26 +18,29 @@ def ema_inplace(moving_avg, new, decay):
 def laplace_smoothing(x, n_categories, eps = 1e-5):
     return (x + eps) / (x.sum() + n_categories * eps)
 
-def kmeans(x, num_clusters, num_iters = 10, use_cosine_sim = False):
-    samples = rearrange(x, '... d -> (...) d')
-    num_samples, dim, dtype, device = *samples.shape, x.dtype, x.device
+def sample_vectors(samples, num):
+    num_samples, device = samples.shape[0], samples.device
 
-    if num_samples >= num_clusters:
-        indices = torch.randperm(num_samples, device=device)[:num_clusters]
+    if num_samples >= num:
+        indices = torch.randperm(num_samples, device = device)[:num]
     else:
-        indices = torch.randint(0, num_samples, (num_clusters,), device=device)
+        indices = torch.randint(0, num_samples, (num,), device = device)
 
-    means = samples[indices]
+    return samples[indices]
+
+def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False):
+    dim, dtype, device = samples.shape[-1], samples.dtype, samples.device
+
+    means = sample_vectors(samples, num_clusters)
 
     for _ in range(num_iters):
         if use_cosine_sim:
             dists = samples @ means.t()
-            buckets = dists.max(dim = -1).indices
         else:
             diffs = rearrange(samples, 'n d -> n () d') - rearrange(means, 'c d -> () c d')
-            dists = (diffs ** 2).sum(dim = -1)
-            buckets = dists.argmin(dim = -1)
+            dists = -(diffs ** 2).sum(dim = -1)
 
+        buckets = dists.max(dim = -1).indices
         bins = torch.bincount(buckets, minlength = num_clusters)
         zero_mask = bins == 0
         bins = bins.masked_fill(zero_mask, 1)
@@ -85,13 +88,17 @@ class EuclideanCodebook(nn.Module):
         self.embed_avg.data.copy_(embed.clone())
         self.initted.data.copy_(torch.Tensor([True]))
 
-    def forward(self, x):
-        if not self.initted:
-            self.init_embed_(x)
+    def replace(self, samples, mask):
+        modified_codebook = torch.where(mask[..., None], sample_vectors(samples, self.codebook_size), self.embed)
+        self.embed.data.copy_(modified_codebook)
 
+    def forward(self, x):
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
         embed = self.embed.t()
+
+        if not self.initted:
+            self.init_embed_(flatten)
 
         dist = -(
             flatten.pow(2).sum(1, keepdim=True)
@@ -144,15 +151,20 @@ class CosineSimCodebook(nn.Module):
         self.embed.data.copy_(embed)
         self.initted.data.copy_(torch.Tensor([True]))
 
+    def replace(self, samples, mask):
+        samples = l2norm(samples)
+        modified_codebook = torch.where(mask[..., None], sample_vectors(samples, self.codebook_size), self.embed)
+        self.embed.data.copy_(modified_codebook)
+
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
         flatten = l2norm(flatten)
-        embed = l2norm(self.embed)
 
         if not self.initted:
             self.init_embed_(flatten)
 
+        embed = l2norm(self.embed)
         dist = flatten @ embed.t()
         embed_ind = dist.max(dim = -1).indices
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
@@ -187,7 +199,8 @@ class VectorQuantize(nn.Module):
         eps = 1e-5,
         kmeans_init = False,
         kmeans_iters = 10,
-        use_cosine_sim = False
+        use_cosine_sim = False,
+        max_codebook_misses_before_expiry = 0
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -211,9 +224,32 @@ class VectorQuantize(nn.Module):
             eps = eps
         )
 
+        self.codebook_size = codebook_size
+        self.max_codebook_misses_before_expiry = max_codebook_misses_before_expiry
+
+        if max_codebook_misses_before_expiry > 0:
+            codebook_misses = torch.zeros(codebook_size)
+            self.register_buffer('codebook_misses', codebook_misses)
+
     @property
     def codebook(self):
         return self._codebook.codebook
+
+    def expire_codes_(self, embed_ind, batch_samples):
+        if self.max_codebook_misses_before_expiry == 0:
+            return
+
+        embed_ind = rearrange(embed_ind, '... -> (...)')
+        misses = torch.bincount(embed_ind, minlength = self.codebook_size) == 0
+        self.codebook_misses += misses
+
+        expired_codes = self.codebook_misses >= self.max_codebook_misses_before_expiry
+        if not torch.any(expired_codes):
+            return
+
+        self.codebook_misses.masked_fill_(expired_codes, 0)
+        batch_samples = rearrange(batch_samples, '... d -> (...) d')
+        self._codebook.replace(batch_samples, mask = expired_codes)
 
     def forward(self, x):
         dtype = x.dtype
@@ -222,9 +258,11 @@ class VectorQuantize(nn.Module):
         quantize, embed_ind = self._codebook(x)
 
         commit_loss = 0.
+
         if self.training:
             commit_loss = F.mse_loss(quantize.detach(), x) * self.commitment
             quantize = x + (quantize - x).detach()
+            self.expire_codes_(embed_ind, x)
 
         quantize = self.project_out(quantize)
         return quantize, embed_ind, commit_loss
