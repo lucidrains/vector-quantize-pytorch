@@ -90,6 +90,24 @@ x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = vq(x)
 ```
 
+### Cosine Similarity
+
+The <a href="https://openreview.net/forum?id=pfNyExj7z2">Improved VQGAN paper</a> also proposes to l2 normalize the codes and the encoded vectors, which boils down to using cosine similarity for the distance. They claim enforcing the vectors on a sphere leads to improvements in code usage and downstream reconstruction. You can turn this on by setting `use_cosine_sim = True`
+
+```python
+import torch
+from vector_quantize_pytorch import VectorQuantize
+
+vq = VectorQuantize(
+    dim = 256,
+    codebook_size = 256,
+    use_cosine_sim = True   # set this to True
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, commit_loss = vq(x)
+```
+
 ## Citations
 
 ```bibtex
