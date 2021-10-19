@@ -9,6 +9,9 @@ def exists(val):
 def default(val, d):
     return val if exists(val) else d
 
+def l2norm(t):
+    return F.normalize(t, p = 2, dim = -1)
+
 def ema_inplace(moving_avg, new, decay):
     moving_avg.data.mul_(decay).add_(new, alpha = (1 - decay))
 
@@ -44,7 +47,7 @@ def kmeans(x, num_clusters, num_iters = 10, use_cosine_sim = False):
         new_means = new_means / bins[..., None]
 
         if use_cosine_sim:
-            new_means = F.normalize(new_means, dim = -1)
+            new_means = l2norm(new_means)
 
         means = torch.where(zero_mask[..., None], means, new_means)
 
@@ -125,7 +128,7 @@ class CosineSimCodebook(nn.Module):
         self.decay = decay
 
         if not kmeans_init:
-            embed = F.normalize(torch.randn(codebook_size, dim), dim = -1)
+            embed = l2norm(torch.randn(codebook_size, dim))
         else:
             embed = torch.zeros(codebook_size, dim)
 
@@ -144,8 +147,8 @@ class CosineSimCodebook(nn.Module):
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
-        flatten = F.normalize(flatten, dim = -1)
-        embed = F.normalize(self.embed, dim = - 1)
+        flatten = l2norm(flatten)
+        embed = l2norm(self.embed)
 
         if not self.initted:
             self.init_embed_(flatten)
@@ -164,7 +167,7 @@ class CosineSimCodebook(nn.Module):
 
             embed_sum = flatten.t() @ embed_onehot
             embed_normalized = (embed_sum / bins.unsqueeze(0)).t()
-            embed_normalized = F.normalize(embed_normalized, dim = -1)
+            embed_normalized = l2norm(embed_normalized)
             embed_normalized = torch.where(zero_mask[..., None], embed, embed_normalized)
             ema_inplace(self.embed, embed_normalized, self.decay)
 
