@@ -37,7 +37,8 @@ def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False):
         if use_cosine_sim:
             dists = samples @ means.t()
         else:
-            diffs = rearrange(samples, 'n d -> n () d') - rearrange(means, 'c d -> () c d')
+            diffs = rearrange(samples, 'n d -> n () d') \
+                    - rearrange(means, 'c d -> () c d')
             dists = -(diffs ** 2).sum(dim = -1)
 
         buckets = dists.max(dim = -1).indices
@@ -89,7 +90,11 @@ class EuclideanCodebook(nn.Module):
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, samples, mask):
-        modified_codebook = torch.where(mask[..., None], sample_vectors(samples, self.codebook_size), self.embed)
+        modified_codebook = torch.where(
+            mask[..., None],
+            sample_vectors(samples, self.codebook_size),
+            self.embed
+        )
         self.embed.data.copy_(modified_codebook)
 
     def forward(self, x):
@@ -147,13 +152,18 @@ class CosineSimCodebook(nn.Module):
         self.register_buffer('embed', embed)
 
     def init_embed_(self, data):
-        embed = kmeans(data, self.codebook_size, self.kmeans_iters, use_cosine_sim = True)
+        embed = kmeans(data, self.codebook_size, self.kmeans_iters,
+                       use_cosine_sim = True)
         self.embed.data.copy_(embed)
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, samples, mask):
         samples = l2norm(samples)
-        modified_codebook = torch.where(mask[..., None], sample_vectors(samples, self.codebook_size), self.embed)
+        modified_codebook = torch.where(
+            mask[..., None],
+            sample_vectors(samples, self.codebook_size),
+            self.embed
+        )
         self.embed.data.copy_(modified_codebook)
 
     def forward(self, x):
@@ -180,7 +190,8 @@ class CosineSimCodebook(nn.Module):
             embed_sum = flatten.t() @ embed_onehot
             embed_normalized = (embed_sum / bins.unsqueeze(0)).t()
             embed_normalized = l2norm(embed_normalized)
-            embed_normalized = torch.where(zero_mask[..., None], embed, embed_normalized)
+            embed_normalized = torch.where(zero_mask[..., None], embed,
+                                           embed_normalized)
             ema_inplace(self.embed, embed_normalized, self.decay)
 
         return quantize, embed_ind
@@ -207,13 +218,16 @@ class VectorQuantize(nn.Module):
 
         codebook_dim = default(codebook_dim, dim)
         requires_projection = codebook_dim != dim
-        self.project_in = nn.Linear(dim, codebook_dim) if requires_projection else nn.Identity()
-        self.project_out = nn.Linear(codebook_dim, dim) if requires_projection else nn.Identity()
+        self.project_in = nn.Linear(dim, codebook_dim) if requires_projection \
+                          else nn.Identity()
+        self.project_out = nn.Linear(codebook_dim, dim) if requires_projection \
+                           else nn.Identity()
 
         self.eps = eps
         self.commitment = commitment
 
-        klass = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
+        codebook_class = EuclideanCodebook if not use_cosine_sim \
+                         else CosineSimCodebook
 
         self._codebook = klass(
             dim = codebook_dim,
