@@ -104,9 +104,10 @@ class EuclideanCodebook(nn.Module):
             return
 
         expired_codes = self.cluster_size < self.threshold_ema_dead_code
-        if torch.any(expired_codes):
-            batch_samples = rearrange(batch_samples, '... d -> (...) d')
-            self.replace(batch_samples, mask = expired_codes)
+        if not torch.any(expired_codes):
+            return
+        batch_samples = rearrange(batch_samples, '... d -> (...) d')
+        self.replace(batch_samples, mask = expired_codes)
 
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
@@ -163,6 +164,7 @@ class CosineSimCodebook(nn.Module):
         self.threshold_ema_dead_code = threshold_ema_dead_code
 
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
+        self.register_buffer('cluster_size', torch.zeros(codebook_size))
         self.register_buffer('embed', embed)
 
     def init_embed_(self, data):
@@ -185,9 +187,10 @@ class CosineSimCodebook(nn.Module):
             return
 
         expired_codes = self.cluster_size < self.threshold_ema_dead_code
-        if torch.any(expired_codes):
-            batch_samples = rearrange(batch_samples, '... d -> (...) d')
-            self.replace(batch_samples, mask = expired_codes)
+        if not torch.any(expired_codes):
+            return
+        batch_samples = rearrange(batch_samples, '... d -> (...) d')
+        self.replace(batch_samples, mask = expired_codes)
 
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
@@ -207,6 +210,8 @@ class CosineSimCodebook(nn.Module):
 
         if self.training:
             bins = embed_onehot.sum(0)
+            ema_inplace(self.cluster_size, bins, self.decay)
+
             zero_mask = (bins == 0)
             bins = bins.masked_fill(zero_mask, 1.)
 
