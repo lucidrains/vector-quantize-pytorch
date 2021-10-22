@@ -44,18 +44,18 @@ def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False):
         buckets = dists.max(dim = -1).indices
         bins = torch.bincount(buckets, minlength = num_clusters)
         zero_mask = bins == 0
-        bins = bins.masked_fill(zero_mask, 1)
+        bins_min_clamped = bins.masked_fill(zero_mask, 1)
 
         new_means = buckets.new_zeros(num_clusters, dim, dtype = dtype)
         new_means.scatter_add_(0, repeat(buckets, 'n -> n d', d = dim), samples)
-        new_means = new_means / bins[..., None]
+        new_means = new_means / bins_min_clamped[..., None]
 
         if use_cosine_sim:
             new_means = l2norm(new_means)
 
         means = torch.where(zero_mask[..., None], means, new_means)
 
-    return means
+    return means, bins
 
 # distance types
 
@@ -86,9 +86,10 @@ class EuclideanCodebook(nn.Module):
         self.register_buffer('embed_avg', embed.clone())
 
     def init_embed_(self, data):
-        embed = kmeans(data, self.codebook_size, self.kmeans_iters)
+        embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters)
         self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed.clone())
+        self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, samples, mask):
@@ -168,9 +169,10 @@ class CosineSimCodebook(nn.Module):
         self.register_buffer('embed', embed)
 
     def init_embed_(self, data):
-        embed = kmeans(data, self.codebook_size, self.kmeans_iters,
+        embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters,
                        use_cosine_sim = True)
         self.embed.data.copy_(embed)
+        self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, samples, mask):
