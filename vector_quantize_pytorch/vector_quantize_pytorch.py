@@ -107,12 +107,12 @@ class EuclideanCodebook(nn.Module):
         expired_codes = self.cluster_size < self.threshold_ema_dead_code
         if not torch.any(expired_codes):
             return
-        batch_samples = rearrange(batch_samples, '... d -> (...) d')
+        batch_samples = rearrange(batch_samples, 'b c d -> (b d) c')
         self.replace(batch_samples, mask = expired_codes)
 
     def forward(self, x):
-        shape, dtype = x.shape, x.dtype
-        flatten = rearrange(x, '... d -> (...) d')
+        (batch_size, _, duration), dtype = x.shape, x.dtype
+        flatten = rearrange(x, 'b c d -> (b d) c')
         embed = self.embed.t()
 
         if not self.initted:
@@ -126,8 +126,8 @@ class EuclideanCodebook(nn.Module):
 
         embed_ind = dist.max(dim = -1).indices
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
-        embed_ind = embed_ind.view(*shape[:-1])
-        quantize = F.embedding(embed_ind, self.embed)
+        embed_ind = embed_ind.view(batch_size, duration)
+        quantize = F.embedding(embed_ind, self.embed).transpose(1, 2)
 
         if self.training:
             ema_inplace(self.cluster_size, embed_onehot.sum(0), self.decay)
