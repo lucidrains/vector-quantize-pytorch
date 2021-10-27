@@ -242,7 +242,8 @@ class VectorQuantize(nn.Module):
         kmeans_init = False,
         kmeans_iters = 10,
         use_cosine_sim = False,
-        threshold_ema_dead_code = 0
+        threshold_ema_dead_code = 0,
+        channel_last = True
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -271,12 +272,18 @@ class VectorQuantize(nn.Module):
         )
 
         self.codebook_size = codebook_size
+        self.channel_last = channel_last
 
     @property
     def codebook(self):
         return self._codebook.codebook
 
     def forward(self, x):
+        need_transpose = not self.channel_last
+
+        if need_transpose:
+            x = rearrange(x, 'b n d -> b d n')
+
         x = self.project_in(x)
 
         quantize, embed_ind = self._codebook(x)
@@ -288,4 +295,8 @@ class VectorQuantize(nn.Module):
             quantize = x + (quantize - x).detach()
 
         quantize = self.project_out(quantize)
+
+        if need_transpose:
+            quantize = rearrange(quantize, 'b n d -> b d n')
+
         return quantize, embed_ind, commit_loss
