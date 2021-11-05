@@ -288,11 +288,11 @@ class VectorQuantize(nn.Module):
 
         quantize, embed_ind = self._codebook(x)
 
-        commit_loss = 0.
-
         if self.training:
             commit_loss = F.mse_loss(quantize.detach(), x) * self.commitment
             quantize = x + (quantize - x).detach()
+        else:
+            commit_loss = torch.tensor([0.], device = x.device)
 
         quantize = self.project_out(quantize)
 
