@@ -276,7 +276,7 @@ class VectorQuantize(nn.Module):
 
     @property
     def codebook(self):
-        return self._codebook.codebook
+        return self._codebook.embed
 
     def forward(self, x):
         need_transpose = not self.channel_last
