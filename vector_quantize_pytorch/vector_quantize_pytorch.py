@@ -85,7 +85,11 @@ class EuclideanCodebook(nn.Module):
         self.register_buffer('embed', embed)
         self.register_buffer('embed_avg', embed.clone())
 
+    @torch.jit.ignore
     def init_embed_(self, data):
+        if self.initted:
+            return
+
         embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters)
         self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed.clone())
@@ -115,8 +119,7 @@ class EuclideanCodebook(nn.Module):
         flatten = rearrange(x, '... d -> (...) d')
         embed = self.embed.t()
 
-        if not self.initted:
-            self.init_embed_(flatten)
+        self.init_embed_(flatten)
 
         dist = -(
             flatten.pow(2).sum(1, keepdim=True)
@@ -168,7 +171,11 @@ class CosineSimCodebook(nn.Module):
         self.register_buffer('cluster_size', torch.zeros(codebook_size))
         self.register_buffer('embed', embed)
 
+    @torch.jit.ignore
     def init_embed_(self, data):
+        if self.initted:
+            return
+
         embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters,
                        use_cosine_sim = True)
         self.embed.data.copy_(embed)
@@ -199,8 +206,7 @@ class CosineSimCodebook(nn.Module):
         flatten = rearrange(x, '... d -> (...) d')
         flatten = l2norm(flatten)
 
-        if not self.initted:
-            self.init_embed_(flatten)
+        self.init_embed_(flatten)
 
         embed = l2norm(self.embed)
         dist = flatten @ embed.t()
