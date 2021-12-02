@@ -126,6 +126,11 @@ x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = vq(x)
 ```
 
+## Todo
+
+- [ ] add orthogonality loss on codebook, from https://arxiv.org/abs/2112.00384
+- [ ] allow for multi-headed codebooks, from https://openreview.net/forum?id=GxjCYmQAody
+
 ## Citations
 
 ```bibtex
@@ -158,5 +163,16 @@ quantized, indices, commit_loss = vq(x)
     year    = {2022},
     url     = {https://openreview.net/forum?id=pfNyExj7z2},
     note    = {under review}
+}
+```
+
+```bibtex
+@misc{shin2021translationequivariant,
+    title   = {Translation-equivariant Image Quantizer for Bi-directional Image-Text Generation}, 
+    author  = {Woncheol Shin and Gyubok Lee and Jiyoung Lee and Joonseok Lee and Edward Choi},
+    year    = {2021},
+    eprint  = {2112.00384},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
 }
 ```
