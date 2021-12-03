@@ -20,7 +20,7 @@ vq = VectorQuantize(
     dim = 256,
     codebook_size = 512,     # codebook size
     decay = 0.8,             # the exponential moving average decay, lower means the dictionary will change faster
-    commitment = 1.          # the weight on the commitment loss
+    commitment_weight = 1.   # the weight on the commitment loss
 )
 
 x = torch.randn(1, 1024, 256)

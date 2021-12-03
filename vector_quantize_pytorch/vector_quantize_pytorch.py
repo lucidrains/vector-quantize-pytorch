@@ -253,14 +253,15 @@ class VectorQuantize(nn.Module):
         n_embed = None,
         codebook_dim = None,
         decay = 0.8,
-        commitment = 1.,
         orthogonal_reg_weight = 0.,
+        commitment_weight = None,
         eps = 1e-5,
         kmeans_init = False,
         kmeans_iters = 10,
         use_cosine_sim = False,
         threshold_ema_dead_code = 0,
-        channel_last = True
+        channel_last = True,
+        commitment = 1. # deprecate in next version, turn off by default
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -273,7 +274,7 @@ class VectorQuantize(nn.Module):
                            else nn.Identity()
 
         self.eps = eps
-        self.commitment = commitment
+        self.commitment_weight = default(commitment_weight, commitment)
         self.orthogonal_reg_weight = orthogonal_reg_weight
 
         codebook_class = EuclideanCodebook if not use_cosine_sim \
@@ -314,9 +315,9 @@ class VectorQuantize(nn.Module):
         loss = torch.tensor([0.], device = device, requires_grad = self.training)
 
         if self.training:
-            if self.commitment > 0:
+            if self.commitment_weight > 0:
                 commit_loss = F.mse_loss(quantize.detach(), x)
-                loss = loss + commit_loss * self.commitment
+                loss = loss + commit_loss * self.commitment_weight
 
             if self.orthogonal_reg_weight > 0:
                 orthogonal_reg_loss = orthgonal_loss_fn(self.codebook)
