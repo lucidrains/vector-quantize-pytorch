@@ -311,7 +311,7 @@ class VectorQuantize(nn.Module):
         if self.training:
             quantize = x + (quantize - x).detach()
 
-        loss = torch.tensor([0.], device = device)
+        loss = torch.tensor([0.], device = device, requires_grad = self.training)
 
         if self.training:
             if self.commitment > 0:
