@@ -57,6 +57,16 @@ def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False):
 
     return means, bins
 
+# regularization losses
+
+def orthgonal_loss_fn(t):
+    # eq (2) from https://arxiv.org/abs/2112.00384
+    n = t.shape[0]
+    normed_codes = l2norm(t)
+    identity = torch.eye(n, device = t.device)
+    cosine_sim = einsum('i d, j d -> i j', normed_codes, normed_codes)
+    return ((cosine_sim - identity) ** 2).sum() / (n ** 2)
+
 # distance types
 
 class EuclideanCodebook(nn.Module):
@@ -244,6 +254,7 @@ class VectorQuantize(nn.Module):
         codebook_dim = None,
         decay = 0.8,
         commitment = 1.,
+        orthogonal_reg_weight = 0.,
         eps = 1e-5,
         kmeans_init = False,
         kmeans_iters = 10,
@@ -263,6 +274,7 @@ class VectorQuantize(nn.Module):
 
         self.eps = eps
         self.commitment = commitment
+        self.orthogonal_reg_weight = orthogonal_reg_weight
 
         codebook_class = EuclideanCodebook if not use_cosine_sim \
                          else CosineSimCodebook
@@ -285,6 +297,8 @@ class VectorQuantize(nn.Module):
         return self._codebook.embed
 
     def forward(self, x):
+        device, codebook_size = x.device, self.codebook_size
+
         need_transpose = not self.channel_last
 
         if need_transpose:
@@ -295,14 +309,22 @@ class VectorQuantize(nn.Module):
         quantize, embed_ind = self._codebook(x)
 
         if self.training:
-            commit_loss = F.mse_loss(quantize.detach(), x) * self.commitment
             quantize = x + (quantize - x).detach()
-        else:
-            commit_loss = torch.tensor([0.], device = x.device)
+
+        loss = torch.tensor([0.], device = device)
+
+        if self.training:
+            if self.commitment > 0:
+                commit_loss = F.mse_loss(quantize.detach(), x)
+                loss = loss + commit_loss * self.commitment
+
+            if self.orthogonal_reg_weight > 0:
+                orthogonal_reg_loss = orthgonal_loss_fn(self.codebook)
+                loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
 
         quantize = self.project_out(quantize)
 
         if need_transpose:
             quantize = rearrange(quantize, 'b d n -> b n d')
 
-        return quantize, embed_ind, commit_loss
+        return quantize, embed_ind, loss
