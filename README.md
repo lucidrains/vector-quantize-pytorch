@@ -152,6 +152,8 @@ quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
 ## Todo
 
 - [ ] allow for multi-headed codebooks, from https://openreview.net/forum?id=GxjCYmQAody
+- [ ] support masking
+
 
 ## Citations
 
