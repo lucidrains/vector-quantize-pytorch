@@ -261,6 +261,7 @@ class VectorQuantize(nn.Module):
         use_cosine_sim = False,
         threshold_ema_dead_code = 0,
         channel_last = True,
+        accept_image_fmap = False,
         commitment = 1. # deprecate in next version, turn off by default
     ):
         super().__init__()
@@ -291,6 +292,8 @@ class VectorQuantize(nn.Module):
         )
 
         self.codebook_size = codebook_size
+
+        self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
     @property
@@ -298,12 +301,16 @@ class VectorQuantize(nn.Module):
         return self._codebook.embed
 
     def forward(self, x):
-        device, codebook_size = x.device, self.codebook_size
+        shape, device, codebook_size = x.shape, x.device, self.codebook_size
 
-        need_transpose = not self.channel_last
+        need_transpose = not self.channel_last and not self.accept_image_fmap
+
+        if self.accept_image_fmap:
+            height, width = x.shape[-2:]
+            x = rearrange(x, 'b c h w -> b (h w) c')
 
         if need_transpose:
-            x = rearrange(x, 'b n d -> b d n')
+            x = rearrange(x, 'b d n -> b n d')
 
         x = self.project_in(x)
 
@@ -326,6 +333,10 @@ class VectorQuantize(nn.Module):
         quantize = self.project_out(quantize)
 
         if need_transpose:
-            quantize = rearrange(quantize, 'b d n -> b n d')
+            quantize = rearrange(quantize, 'b n d -> b d n')
+
+        if self.accept_image_fmap:
+            quantize = rearrange(quantize, 'b (h w) c -> b c h w', h = height, w = width)
+            embed_ind = rearrange(embed_ind, 'b (h w) -> b h w', h = height, w = width)
 
         return quantize, embed_ind, loss

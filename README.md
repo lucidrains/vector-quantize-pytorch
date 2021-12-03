@@ -139,15 +139,15 @@ from vector_quantize_pytorch import VectorQuantize
 vq = VectorQuantize(
     dim = 256,
     codebook_size = 256,
-    orthogonal_reg_weight = 10  # in paper, they recommended a value of 10
+    accept_image_fmap = True,    # set this true to be able to pass in an image feature map
+    orthogonal_reg_weight = 10,  # in paper, they recommended a value of 10
 )
 
-x = torch.randn(1, 1024, 256)
-quantized, indices, loss = vq(x)
+img_fmap = torch.randn(1, 256, 32, 32)
+quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
 
 # loss now contains the orthogonal regularization loss with the weight as assigned
 ```
-
 
 ## Todo
 
