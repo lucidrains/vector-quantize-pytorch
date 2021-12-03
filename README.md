@@ -126,9 +126,31 @@ x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = vq(x)
 ```
 
+## Orthogonal regularization loss
+
+VQ-VAE / VQ-GAN is quickly gaining popularity. A <a href="https://arxiv.org/abs/2112.00384">recent paper</a> proposes that when using vector quantization on images, enforcing the codebook to be orthogonal leads to translation equivariance of the discretized codes, leading to large improvements in downstream text to image generation tasks.
+
+You can use this feature by simply setting the `orthogonal_reg_weight` to be greater than `0`, in which case the orthogonal regularization will be added to the auxiliary loss outputted by the module.
+
+```python
+import torch
+from vector_quantize_pytorch import VectorQuantize
+
+vq = VectorQuantize(
+    dim = 256,
+    codebook_size = 256,
+    orthogonal_reg_weight = 10  # in paper, they recommended a value of 10
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, loss = vq(x)
+
+# loss now contains the orthogonal regularization loss with the weight as assigned
+```
+
+
 ## Todo
 
-- [ ] add orthogonality loss on codebook, from https://arxiv.org/abs/2112.00384
 - [ ] allow for multi-headed codebooks, from https://openreview.net/forum?id=GxjCYmQAody
 
 ## Citations
