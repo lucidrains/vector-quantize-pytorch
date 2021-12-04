@@ -253,8 +253,6 @@ class VectorQuantize(nn.Module):
         n_embed = None,
         codebook_dim = None,
         decay = 0.8,
-        orthogonal_reg_weight = 0.,
-        commitment_weight = None,
         eps = 1e-5,
         kmeans_init = False,
         kmeans_iters = 10,
@@ -262,7 +260,10 @@ class VectorQuantize(nn.Module):
         threshold_ema_dead_code = 0,
         channel_last = True,
         accept_image_fmap = False,
-        commitment = 1. # deprecate in next version, turn off by default
+        commitment_weight = None,
+        commitment = 1., # deprecate in next version, turn off by default
+        orthogonal_reg_weight = 0.,
+        orthogonal_reg_active_codes_only = False
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -276,7 +277,9 @@ class VectorQuantize(nn.Module):
 
         self.eps = eps
         self.commitment_weight = default(commitment_weight, commitment)
+
         self.orthogonal_reg_weight = orthogonal_reg_weight
+        self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
 
         codebook_class = EuclideanCodebook if not use_cosine_sim \
                          else CosineSimCodebook
@@ -327,6 +330,15 @@ class VectorQuantize(nn.Module):
                 loss = loss + commit_loss * self.commitment_weight
 
             if self.orthogonal_reg_weight > 0:
+                codebook = self.codebook
+
+                if self.orthogonal_reg_active_codes_only:
+                    # only calculate orthogonal loss for the activated codes for this batch
+                    unique_code_ids = torch.unique(embed_ind)
+                    codebook = self.codebook[unique_code_ids]
+                else:
+                    codebook = self.codebook
+
                 orthogonal_reg_loss = orthgonal_loss_fn(self.codebook)
                 loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
 
