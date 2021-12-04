@@ -263,7 +263,8 @@ class VectorQuantize(nn.Module):
         commitment_weight = None,
         commitment = 1., # deprecate in next version, turn off by default
         orthogonal_reg_weight = 0.,
-        orthogonal_reg_active_codes_only = False
+        orthogonal_reg_active_codes_only = False,
+        orthogonal_reg_max_codes = None
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -280,6 +281,7 @@ class VectorQuantize(nn.Module):
 
         self.orthogonal_reg_weight = orthogonal_reg_weight
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
+        self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
 
         codebook_class = EuclideanCodebook if not use_cosine_sim \
                          else CosineSimCodebook
@@ -337,6 +339,12 @@ class VectorQuantize(nn.Module):
                     unique_code_ids = torch.unique(embed_ind)
                     codebook = codebook[unique_code_ids]
 
+                num_codes = codebook.shape[0]
+                if exists(self.orthogonal_reg_max_codes) and num_codes > self.orthogonal_reg_max_codes:
+                    rand_ids = torch.randperm(num_codes, device = device)[:self.orthogonal_reg_max_codes]
+                    codebook = codebook[rand_ids]
+
+                print(codebook.shape)
                 orthogonal_reg_loss = orthgonal_loss_fn(codebook)
                 loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
 
