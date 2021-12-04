@@ -335,11 +335,9 @@ class VectorQuantize(nn.Module):
                 if self.orthogonal_reg_active_codes_only:
                     # only calculate orthogonal loss for the activated codes for this batch
                     unique_code_ids = torch.unique(embed_ind)
-                    codebook = self.codebook[unique_code_ids]
-                else:
-                    codebook = self.codebook
+                    codebook = codebook[unique_code_ids]
 
-                orthogonal_reg_loss = orthgonal_loss_fn(self.codebook)
+                orthogonal_reg_loss = orthgonal_loss_fn(codebook)
                 loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
 
         quantize = self.project_out(quantize)
