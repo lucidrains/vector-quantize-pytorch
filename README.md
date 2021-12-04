@@ -141,6 +141,7 @@ vq = VectorQuantize(
     codebook_size = 256,
     accept_image_fmap = True,                   # set this true to be able to pass in an image feature map
     orthogonal_reg_weight = 10,                 # in paper, they recommended a value of 10
+    orthogonal_reg_max_codes = 128,             # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
     orthogonal_reg_active_codes_only = False    # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
 )
 
