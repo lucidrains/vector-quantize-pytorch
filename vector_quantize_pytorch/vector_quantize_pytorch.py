@@ -1,13 +1,20 @@
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
+
 from einops import rearrange, repeat
+from contextlib import contextmanager
 
 def exists(val):
     return val is not None
 
 def default(val, d):
     return val if exists(val) else d
+
+@contextmanager
+def null_context():
+    yield
 
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
@@ -264,7 +271,8 @@ class VectorQuantize(nn.Module):
         commitment = 1., # deprecate in next version, turn off by default
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
-        orthogonal_reg_max_codes = None
+        orthogonal_reg_max_codes = None,
+        quantize_full_precision = False
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -301,6 +309,9 @@ class VectorQuantize(nn.Module):
         self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
+        # when quantizing, whether to turn off mixed precision
+        self.quantize_full_precision = quantize_full_precision
+
     @property
     def codebook(self):
         return self._codebook.embed
@@ -319,7 +330,10 @@ class VectorQuantize(nn.Module):
 
         x = self.project_in(x)
 
-        quantize, embed_ind = self._codebook(x)
+        context = null_context() if not self.quantize_full_precision else autocast(enabled = False)
+
+        with context:
+            quantize, embed_ind = self._codebook(x)
 
         if self.training:
             quantize = x + (quantize - x).detach()
