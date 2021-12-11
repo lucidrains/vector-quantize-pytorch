@@ -1,6 +1,7 @@
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
+import torch.distributed as distributed
 from torch.cuda.amp import autocast
 
 from einops import rearrange, repeat
@@ -12,9 +13,8 @@ def exists(val):
 def default(val, d):
     return val if exists(val) else d
 
-@contextmanager
-def null_context():
-    yield
+def noop(*args, **kwargs):
+    pass
 
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
@@ -85,7 +85,8 @@ class EuclideanCodebook(nn.Module):
         kmeans_iters = 10,
         decay = 0.8,
         eps = 1e-5,
-        threshold_ema_dead_code = 2
+        threshold_ema_dead_code = 2,
+        use_ddp = False
     ):
         super().__init__()
         self.decay = decay
@@ -97,6 +98,7 @@ class EuclideanCodebook(nn.Module):
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
 
+        self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
         self.register_buffer('cluster_size', torch.zeros(codebook_size))
         self.register_buffer('embed', embed)
@@ -131,6 +133,7 @@ class EuclideanCodebook(nn.Module):
         batch_samples = rearrange(batch_samples, '... d -> (...) d')
         self.replace(batch_samples, mask = expired_codes)
 
+    @autocast(enabled = False)
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
@@ -150,8 +153,14 @@ class EuclideanCodebook(nn.Module):
         quantize = F.embedding(embed_ind, self.embed)
 
         if self.training:
-            ema_inplace(self.cluster_size, embed_onehot.sum(0), self.decay)
+            cluster_size = embed_onehot.sum(0)
+            self.all_reduce_fn(cluster_size)
+
+            ema_inplace(self.cluster_size, cluster_size, self.decay)
+
             embed_sum = flatten.t() @ embed_onehot
+            self.all_reduce_fn(embed_sum)
+
             ema_inplace(self.embed_avg, embed_sum.t(), self.decay)
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum()
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(1)
@@ -169,7 +178,8 @@ class CosineSimCodebook(nn.Module):
         kmeans_iters = 10,
         decay = 0.8,
         eps = 1e-5,
-        threshold_ema_dead_code = 2
+        threshold_ema_dead_code = 2,
+        use_ddp = False
     ):
         super().__init__()
         self.decay = decay
@@ -184,6 +194,7 @@ class CosineSimCodebook(nn.Module):
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
 
+        self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
         self.register_buffer('cluster_size', torch.zeros(codebook_size))
         self.register_buffer('embed', embed)
@@ -218,6 +229,7 @@ class CosineSimCodebook(nn.Module):
         batch_samples = rearrange(batch_samples, '... d -> (...) d')
         self.replace(batch_samples, mask = expired_codes)
 
+    @autocast(enabled = False)
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
@@ -235,12 +247,16 @@ class CosineSimCodebook(nn.Module):
 
         if self.training:
             bins = embed_onehot.sum(0)
+            self.all_reduce_fn(bins)
+
             ema_inplace(self.cluster_size, bins, self.decay)
 
             zero_mask = (bins == 0)
             bins = bins.masked_fill(zero_mask, 1.)
 
             embed_sum = flatten.t() @ embed_onehot
+            self.all_reduce_fn(embed_sum)
+
             embed_normalized = (embed_sum / bins.unsqueeze(0)).t()
             embed_normalized = l2norm(embed_normalized)
             embed_normalized = torch.where(zero_mask[..., None], embed,
@@ -272,7 +288,7 @@ class VectorQuantize(nn.Module):
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
-        quantize_full_precision = False
+        sync_codebook = False
     ):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
@@ -301,16 +317,14 @@ class VectorQuantize(nn.Module):
             kmeans_iters = kmeans_iters,
             decay = decay,
             eps = eps,
-            threshold_ema_dead_code = threshold_ema_dead_code
+            threshold_ema_dead_code = threshold_ema_dead_code,
+            use_ddp = sync_codebook
         )
 
         self.codebook_size = codebook_size
 
         self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
-
-        # when quantizing, whether to turn off mixed precision
-        self.quantize_full_precision = quantize_full_precision
 
     @property
     def codebook(self):
@@ -330,10 +344,7 @@ class VectorQuantize(nn.Module):
 
         x = self.project_in(x)
 
-        context = null_context() if not self.quantize_full_precision else autocast(enabled = False)
-
-        with context:
-            quantize, embed_ind = self._codebook(x)
+        quantize, embed_ind = self._codebook(x)
 
         if self.training:
             quantize = x + (quantize - x).detach()

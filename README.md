@@ -151,6 +151,56 @@ quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
 # loss now contains the orthogonal regularization loss with the weight as assigned
 ```
 
+### DDP
+
+This repository also supports synchronizing the codebooks in a distributed settings. Below should be a working script, and also shows which flag you need to enable for it to work as expected.
+
+```python
+import torch
+from torch import nn
+from vector_quantize_pytorch import VectorQuantize
+
+# ddp related imports
+
+import os
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+
+def cleanup():
+    dist.destroy_process_group()
+
+def start(rank, world_size):
+    setup(rank, world_size)
+
+    net = nn.Sequential(
+        nn.Conv2d(256, 256, 1),
+        VectorQuantize(
+            dim = 256,
+            codebook_size = 1024,
+            accept_image_fmap = True,
+            sync_codebook = True           # this needs to be set to True
+        )
+    ).cuda(rank)
+
+    ddp_mp_model = DDP(net, device_ids = [rank])
+    img_fmap = torch.randn(1, 256, 32, 32).cuda(rank)
+    quantized, indices, loss = ddp_mp_model(img_fmap)
+
+    cleanup()
+
+if __name__ == '__main__':
+    world_size = torch.cuda.device_count()
+    assert world_size >= 2, f"requires at least 2 GPUs to run, but got {n_gpus}"
+    mp.spawn(start, args=(world_size,), nprocs=world_size, join=True)
+
+```
+
 ## Todo
 
 - [ ] allow for multi-headed codebooks, from https://openreview.net/forum?id=GxjCYmQAody
