@@ -86,7 +86,8 @@ class EuclideanCodebook(nn.Module):
         decay = 0.8,
         eps = 1e-5,
         threshold_ema_dead_code = 2,
-        use_ddp = False
+        use_ddp = False,
+        learnable_codebook = False
     ):
         super().__init__()
         self.decay = decay
@@ -99,10 +100,16 @@ class EuclideanCodebook(nn.Module):
         self.threshold_ema_dead_code = threshold_ema_dead_code
 
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
+
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
         self.register_buffer('cluster_size', torch.zeros(codebook_size))
-        self.register_buffer('embed', embed)
         self.register_buffer('embed_avg', embed.clone())
+
+        self.learnable_codebook = learnable_codebook
+        if learnable_codebook:
+            self.embed = nn.Parameter(embed)
+        else:
+            self.register_buffer('embed', embed)
 
     @torch.jit.ignore
     def init_embed_(self, data):
@@ -137,9 +144,11 @@ class EuclideanCodebook(nn.Module):
     def forward(self, x):
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
-        embed = self.embed.t()
 
         self.init_embed_(flatten)
+
+        embed = self.embed if not self.learnable_codebook else self.embed.detach()
+        embed = self.embed.t()
 
         dist = -(
             flatten.pow(2).sum(1, keepdim=True)
@@ -179,7 +188,8 @@ class CosineSimCodebook(nn.Module):
         decay = 0.8,
         eps = 1e-5,
         threshold_ema_dead_code = 2,
-        use_ddp = False
+        use_ddp = False,
+        learnable_codebook = False
     ):
         super().__init__()
         self.decay = decay
@@ -197,7 +207,12 @@ class CosineSimCodebook(nn.Module):
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
         self.register_buffer('cluster_size', torch.zeros(codebook_size))
-        self.register_buffer('embed', embed)
+
+        self.learnable_codebook = learnable_codebook
+        if learnable_codebook:
+            self.embed = nn.Parameter(embed)
+        else:
+            self.register_buffer('embed', embed)
 
     @torch.jit.ignore
     def init_embed_(self, data):
@@ -237,7 +252,9 @@ class CosineSimCodebook(nn.Module):
 
         self.init_embed_(flatten)
 
-        embed = l2norm(self.embed)
+        embed = self.embed if not self.learnable_codebook else self.embed.detach()
+        embed = l2norm(embed)
+
         dist = flatten @ embed.t()
         embed_ind = dist.max(dim = -1).indices
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
@@ -303,6 +320,7 @@ class VectorQuantize(nn.Module):
         self.eps = eps
         self.commitment_weight = default(commitment_weight, commitment)
 
+        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
         self.orthogonal_reg_weight = orthogonal_reg_weight
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
         self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
@@ -318,7 +336,8 @@ class VectorQuantize(nn.Module):
             decay = decay,
             eps = eps,
             threshold_ema_dead_code = threshold_ema_dead_code,
-            use_ddp = sync_codebook
+            use_ddp = sync_codebook,
+            learnable_codebook = has_codebook_orthogonal_loss
         )
 
         self.codebook_size = codebook_size
