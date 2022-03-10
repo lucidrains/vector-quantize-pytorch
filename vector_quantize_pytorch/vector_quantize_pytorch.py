@@ -19,6 +19,19 @@ def noop(*args, **kwargs):
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
 
+def log(t, eps = 1e-20):
+    return torch.log(t.clamp(min = eps))
+
+def gumbel_noise(t):
+    noise = torch.zeros_like(t).uniform_(0, 1)
+    return -log(-log(noise))
+
+def gumbel_sample(t, temperature = 1., dim = -1):
+    if temperature == 0:
+        return t.argmax(dim = dim)
+
+    return ((t / temperature) + gumbel_noise(t)).argmax(dim = dim)
+
 def ema_inplace(moving_avg, new, decay):
     moving_avg.data.mul_(decay).add_(new, alpha = (1 - decay))
 
@@ -87,7 +100,8 @@ class EuclideanCodebook(nn.Module):
         eps = 1e-5,
         threshold_ema_dead_code = 2,
         use_ddp = False,
-        learnable_codebook = False
+        learnable_codebook = False,
+        sample_codebook_temp = 0
     ):
         super().__init__()
         self.decay = decay
@@ -98,6 +112,7 @@ class EuclideanCodebook(nn.Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
+        self.sample_codebook_temp = sample_codebook_temp
 
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
@@ -156,7 +171,7 @@ class EuclideanCodebook(nn.Module):
             + embed.pow(2).sum(0, keepdim=True)
         )
 
-        embed_ind = dist.max(dim = -1).indices
+        embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = embed_ind.view(*shape[:-1])
         quantize = F.embedding(embed_ind, self.embed)
@@ -189,7 +204,8 @@ class CosineSimCodebook(nn.Module):
         eps = 1e-5,
         threshold_ema_dead_code = 2,
         use_ddp = False,
-        learnable_codebook = False
+        learnable_codebook = False,
+        sample_codebook_temp = 0.
     ):
         super().__init__()
         self.decay = decay
@@ -203,6 +219,7 @@ class CosineSimCodebook(nn.Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
+        self.sample_codebook_temp = sample_codebook_temp
 
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
@@ -256,7 +273,7 @@ class CosineSimCodebook(nn.Module):
         embed = l2norm(embed)
 
         dist = flatten @ embed.t()
-        embed_ind = dist.max(dim = -1).indices
+        embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = embed_ind.view(*shape[:-1])
 
@@ -305,6 +322,7 @@ class VectorQuantize(nn.Module):
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
+        sample_codebook_temp = 0.,
         sync_codebook = False
     ):
         super().__init__()
@@ -337,7 +355,8 @@ class VectorQuantize(nn.Module):
             eps = eps,
             threshold_ema_dead_code = threshold_ema_dead_code,
             use_ddp = sync_codebook,
-            learnable_codebook = has_codebook_orthogonal_loss
+            learnable_codebook = has_codebook_orthogonal_loss,
+            sample_codebook_temp = sample_codebook_temp
         )
 
         self.codebook_size = codebook_size

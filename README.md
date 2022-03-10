@@ -27,7 +27,7 @@ x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = vq(x) # (1, 1024, 256), (1, 1024), (1)
 ```
 
-## Variants
+## Residual VQ
 
 This <a href="https://arxiv.org/abs/2107.03312">paper</a> proposes to use multiple vector quantizers to recursively quantize the residuals of the waveform. You can use this with the `ResidualVQ` class and one extra initialization parameter.
 
@@ -39,6 +39,29 @@ residual_vq = ResidualVQ(
     dim = 256,
     num_quantizers = 8,      # specify number of quantizers
     codebook_size = 1024,    # codebook size
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, commit_loss = residual_vq(x)
+
+# (1, 1024, 256), (8, 1, 1024), (8, 1)
+# (batch, seq, dim), (quantizer, batch, seq), (quantizer, batch)
+```
+
+Furthermore, <a href="https://arxiv.org/abs/2203.01941">this paper</a> uses Residual-VQ to construct the RQ-VAE, for generating high resolution images with more compressed number of codes.
+
+They make two modifications. The first is to share the codebook across all quantizers. The second is to stochastically sample the codes rather than always taking the closest match. You can use both of these features with two extra keyword arguments.
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualVQ
+
+residual_vq = ResidualVQ(
+    dim = 256,
+    num_quantizers = 8,
+    codebook_size = 1024,
+    sample_codebook_temp = 0.1, # temperature for stochastically sampling codes, 0 would be equivalent to non-stochastic
+    shared_codebook = True      # whether to share the codebooks for all quantizers or not
 )
 
 x = torch.randn(1, 1024, 256)
@@ -250,5 +273,14 @@ if __name__ == '__main__':
     eprint  = {2112.00384},
     archivePrefix = {arXiv},
     primaryClass = {cs.CV}
+}
+```
+
+```bibtex
+@unknown{unknown,
+    author  = {Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
+    year    = {2022},
+    month   = {03},
+    title   = {Autoregressive Image Generation using Residual Quantization}
 }
 ```
