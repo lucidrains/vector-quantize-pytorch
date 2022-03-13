@@ -1,3 +1,4 @@
+from functools import partial
 import torch
 from torch import nn
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
@@ -38,5 +39,5 @@ class ResidualVQ(nn.Module):
             all_indices.append(indices)
             all_losses.append(loss)
 
-        all_losses, all_indices = map(torch.stack, (all_losses, all_indices))
+        all_losses, all_indices = map(partial(torch.stack, dim = -1), (all_losses, all_indices))
         return quantized_out, all_indices, all_losses
