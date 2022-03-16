@@ -1,3 +1,5 @@
+<img src="./vq.png" width="500px"></img>
+
 ## Vector Quantization - Pytorch
 
 A vector quantization library originally transcribed from Deepmind's tensorflow implementation, made conveniently into a package. It uses exponential moving averages to update the dictionary.
