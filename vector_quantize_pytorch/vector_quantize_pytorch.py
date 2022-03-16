@@ -57,8 +57,7 @@ def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False):
         if use_cosine_sim:
             dists = samples @ means.t()
         else:
-            diffs = rearrange(samples, 'n d -> n () d') \
-                    - rearrange(means, 'c d -> () c d')
+            diffs = rearrange(samples, 'n d -> n () d') - rearrange(means, 'c d -> () c d')
             dists = -(diffs ** 2).sum(dim = -1)
 
         buckets = dists.max(dim = -1).indices
@@ -309,6 +308,7 @@ class VectorQuantize(nn.Module):
         codebook_size,
         n_embed = None,
         codebook_dim = None,
+        heads = 1,
         decay = 0.8,
         eps = 1e-5,
         kmeans_init = False,
@@ -328,12 +328,13 @@ class VectorQuantize(nn.Module):
         super().__init__()
         n_embed = default(n_embed, codebook_size)
 
+        self.heads = heads
         codebook_dim = default(codebook_dim, dim)
-        requires_projection = codebook_dim != dim
-        self.project_in = nn.Linear(dim, codebook_dim) if requires_projection \
-                          else nn.Identity()
-        self.project_out = nn.Linear(codebook_dim, dim) if requires_projection \
-                           else nn.Identity()
+        codebook_input_dim = codebook_dim * heads
+
+        requires_projection = codebook_input_dim != dim
+        self.project_in = nn.Linear(dim, codebook_input_dim) if requires_projection else nn.Identity()
+        self.project_out = nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
 
         self.eps = eps
         self.commitment_weight = default(commitment_weight, commitment)
@@ -343,8 +344,7 @@ class VectorQuantize(nn.Module):
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
         self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
 
-        codebook_class = EuclideanCodebook if not use_cosine_sim \
-                         else CosineSimCodebook
+        codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
 
         self._codebook = codebook_class(
             dim = codebook_dim,
@@ -369,7 +369,7 @@ class VectorQuantize(nn.Module):
         return self._codebook.embed
 
     def forward(self, x):
-        shape, device, codebook_size = x.shape, x.device, self.codebook_size
+        shape, device, heads, is_multiheaded, codebook_size = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
 
@@ -381,6 +381,9 @@ class VectorQuantize(nn.Module):
             x = rearrange(x, 'b d n -> b n d')
 
         x = self.project_in(x)
+
+        if is_multiheaded:
+            x = rearrange(x, 'b n (h d) -> (b h) n d', h = heads)
 
         quantize, embed_ind = self._codebook(x)
 
@@ -410,6 +413,10 @@ class VectorQuantize(nn.Module):
                 orthogonal_reg_loss = orthgonal_loss_fn(codebook)
                 loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
 
+        if is_multiheaded:
+            quantize = rearrange(quantize, '(b h) n d -> b n (h d)', h = heads)
+            embed_ind = rearrange(embed_ind, '(b h) n -> b n h', h = heads)
+
         quantize = self.project_out(quantize)
 
         if need_transpose:
@@ -417,6 +424,6 @@ class VectorQuantize(nn.Module):
 
         if self.accept_image_fmap:
             quantize = rearrange(quantize, 'b (h w) c -> b c h w', h = height, w = width)
-            embed_ind = rearrange(embed_ind, 'b (h w) -> b h w', h = height, w = width)
+            embed_ind = rearrange(embed_ind, 'b (h w) ... -> b h w ...', h = height, w = width)
 
         return quantize, embed_ind, loss

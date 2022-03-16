@@ -174,6 +174,29 @@ quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
 # loss now contains the orthogonal regularization loss with the weight as assigned
 ```
 
+### Multi-headed VQ
+
+There has been a number of papers that proposes variants of discrete latent representations with a multi-headed approach (multiple codes per feature).
+
+```python
+import torch
+from vector_quantize_pytorch import VectorQuantize
+
+vq = VectorQuantize(
+    dim = 256,
+    codebook_dim = 32,         # a number of papers have shown smaller codebook dimension to be acceptable
+    heads = 8,                 # number of heads to vector quantize, codebook shared across all heads
+    codebook_size = 8196,
+    accept_image_fmap = True
+)
+
+img_fmap = torch.randn(1, 256, 32, 32)
+quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32, 8), (1,)
+
+# indices shape - (batch, height, width, heads)
+# loss now contains the orthogonal regularization loss with the weight as assigned
+```
+
 ### DDP
 
 This repository also supports synchronizing the codebooks in a distributed settings. Below should be a working script, and also shows which flag you need to enable for it to work as expected.
@@ -226,7 +249,7 @@ if __name__ == '__main__':
 
 ## Todo
 
-- [ ] allow for multi-headed codebooks, from https://openreview.net/forum?id=GxjCYmQAody
+- [x] allow for multi-headed codebooks
 - [ ] support masking
 
 
