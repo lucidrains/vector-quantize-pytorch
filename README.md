@@ -176,7 +176,9 @@ quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
 
 ### Multi-headed VQ
 
-There has been a number of papers that proposes variants of discrete latent representations with a multi-headed approach (multiple codes per feature).
+There has been a number of papers that proposes variants of discrete latent representations with a multi-headed approach (multiple codes per feature). I have decided to offer one variant where the same codebook is used to vector quantize across the input dimension `head` times.
+
+You can also use a more proven approach (memcodes) from <a href="https://github.com/lucidrains/nwt-pytorch">NWT paper</a>
 
 ```python
 import torch
