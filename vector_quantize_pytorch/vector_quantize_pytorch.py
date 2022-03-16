@@ -306,7 +306,6 @@ class VectorQuantize(nn.Module):
         self,
         dim,
         codebook_size,
-        n_embed = None,
         codebook_dim = None,
         heads = 1,
         decay = 0.8,
@@ -317,8 +316,7 @@ class VectorQuantize(nn.Module):
         threshold_ema_dead_code = 0,
         channel_last = True,
         accept_image_fmap = False,
-        commitment_weight = None,
-        commitment = 1., # deprecate in next version, turn off by default
+        commitment_weight = 1.,
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
@@ -326,8 +324,6 @@ class VectorQuantize(nn.Module):
         sync_codebook = False
     ):
         super().__init__()
-        n_embed = default(n_embed, codebook_size)
-
         self.heads = heads
         codebook_dim = default(codebook_dim, dim)
         codebook_input_dim = codebook_dim * heads
@@ -337,7 +333,7 @@ class VectorQuantize(nn.Module):
         self.project_out = nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
 
         self.eps = eps
-        self.commitment_weight = default(commitment_weight, commitment)
+        self.commitment_weight = commitment_weight
 
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
         self.orthogonal_reg_weight = orthogonal_reg_weight
@@ -348,7 +344,7 @@ class VectorQuantize(nn.Module):
 
         self._codebook = codebook_class(
             dim = codebook_dim,
-            codebook_size = n_embed,
+            codebook_size = codebook_size,
             kmeans_init = kmeans_init,
             kmeans_iters = kmeans_iters,
             decay = decay,
