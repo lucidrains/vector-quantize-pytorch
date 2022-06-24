@@ -156,6 +156,8 @@ class EuclideanCodebook(nn.Module):
 
     @autocast(enabled = False)
     def forward(self, x):
+        x = x.float()
+
         shape, dtype = x.shape, x.dtype
         flatten = rearrange(x, '... d -> (...) d')
 
@@ -262,7 +264,10 @@ class CosineSimCodebook(nn.Module):
 
     @autocast(enabled = False)
     def forward(self, x):
+        x = x.float()
+
         shape, dtype = x.shape, x.dtype
+
         flatten = rearrange(x, '... d -> (...) d')
         flatten = l2norm(flatten)
 
