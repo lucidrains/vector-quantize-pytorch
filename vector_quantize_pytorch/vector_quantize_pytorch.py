@@ -51,35 +51,54 @@ def sample_vectors(samples, num):
 def pad_shape(shape, size, dim = 0):
     return [size if i == dim else s for i, s in enumerate(shape)]
 
+def sample_multinomial(total_count, probs):
+    device = probs.device
+    probs = probs.cpu()
+
+    total_count = probs.new_full((), total_count)
+    remainder = probs.new_ones(())
+    sample = torch.empty_like(probs, dtype = torch.long)
+
+    for i, p in enumerate(probs):
+        s = torch.binomial(total_count, p / remainder)
+        sample[i] = s
+        total_count -= s
+        remainder -= p
+
+    return sample.to(device)
+
 def all_gather_sizes(x, dim):
     size = torch.tensor(x.shape[dim], dtype = torch.long, device = x.device)
     all_sizes = [torch.empty_like(size) for _ in range(distributed.get_world_size())]
     distributed.all_gather(all_sizes, size)
+
     return torch.stack(all_sizes)
 
 def all_gather_variably_sized(x, sizes, dim = 0):
     rank = distributed.get_rank()
     all_x = []
+
     for i, size in enumerate(sizes):
         t = x if i == rank else x.new_empty(pad_shape(x.shape, size, dim))
         distributed.broadcast(t, src = i, async_op = True)
         all_x.append(t)
+
     distributed.barrier()
     return all_x
 
 def sample_vectors_distributed(local_samples, num):
+    rank = distributed.get_rank()
     all_num_samples = all_gather_sizes(local_samples, dim = 0)
 
-    if distributed.get_rank() == 0:
-        # how many samples to draw from each replica
-        mult = torch.distributions.Multinomial(num, probs = all_num_samples)
-        samples_per_rank = mult.sample().long()
+    if rank == 0:
+        samples_per_rank = sample_multinomial(num, all_num_samples / all_num_samples.sum())
     else:
         samples_per_rank = torch.empty_like(all_num_samples)
+
     distributed.broadcast(samples_per_rank, src = 0)
     samples_per_rank = samples_per_rank.tolist()
 
-    local_samples = sample_vectors(local_samples, samples_per_rank[distributed.get_rank()])
+    local_samples = sample_vectors(local_samples, samples_per_rank[rank])
     all_samples = all_gather_variably_sized(local_samples, samples_per_rank, dim = 0)
     return torch.cat(all_samples, dim = 0)
 
