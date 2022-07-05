@@ -102,7 +102,8 @@ def sample_vectors_distributed(local_samples, num):
     all_samples = all_gather_variably_sized(local_samples, samples_per_rank, dim = 0)
     return torch.cat(all_samples, dim = 0)
 
-def kmeans(samples, num_clusters, sample_fn, all_reduce_fn, num_iters = 10, use_cosine_sim = False):
+def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False, 
+           sample_fn = sample_vectors, all_reduce_fn = noop):
     dim, dtype, device = samples.shape[-1], samples.dtype, samples.device
     means = sample_fn(samples, num_clusters)
 
@@ -188,16 +189,15 @@ class EuclideanCodebook(nn.Module):
         if self.initted:
             return
 
-        embed, cluster_size = kmeans(data, self.codebook_size, 
-                                     self.sample_fn, self.all_reduce_fn, 
-                                     self.kmeans_iters)
+        embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters,
+                                     sample_fn = self.sample_fn, all_reduce_fn = self.all_reduce_fn)
 
         self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed.clone())
         self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
-    def replace_(self, samples, mask):
+    def replace(self, samples, mask):
         self.embed.data[mask] = self.sample_fn(samples, mask.sum().item())
 
     def expire_codes_(self, batch_samples):
@@ -208,7 +208,7 @@ class EuclideanCodebook(nn.Module):
         if not torch.any(expired_codes):
             return
         batch_samples = rearrange(batch_samples, '... d -> (...) d')
-        self.replace_(batch_samples, mask = expired_codes)
+        self.replace(batch_samples, mask = expired_codes)
 
     @autocast(enabled = False)
     def forward(self, x):
@@ -295,15 +295,14 @@ class CosineSimCodebook(nn.Module):
         if self.initted:
             return
 
-        embed, cluster_size = kmeans(data, self.codebook_size, 
-                                     self.sample_fn, self.all_reduce_fn, 
-                                     self.kmeans_iters, use_cosine_sim = True)
+        embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters, use_cosine_sim = True,
+                                     sample_fn = self.sample_fn, all_reduce_fn = self.all_reduce_fn)
 
         self.embed.data.copy_(embed)
         self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
-    def replace_(self, samples, mask):
+    def replace(self, samples, mask):
         samples = l2norm(samples)
         self.embed.data[mask] = self.sample_fn(samples, mask.sum().item())
 
@@ -315,7 +314,7 @@ class CosineSimCodebook(nn.Module):
         if not torch.any(expired_codes):
             return
         batch_samples = rearrange(batch_samples, '... d -> (...) d')
-        self.replace_(batch_samples, mask = expired_codes)
+        self.replace(batch_samples, mask = expired_codes)
 
     @autocast(enabled = False)
     def forward(self, x):
