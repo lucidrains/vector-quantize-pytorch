@@ -22,6 +22,11 @@ def l2norm(t):
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
+def uniform_init(*shape):
+    t = torch.empty(shape)
+    nn.init.kaiming_uniform_(t)
+    return t
+
 def gumbel_noise(t):
     noise = torch.zeros_like(t).uniform_(0, 1)
     return -log(-log(noise))
@@ -162,7 +167,7 @@ class EuclideanCodebook(nn.Module):
     ):
         super().__init__()
         self.decay = decay
-        init_fn = torch.randn if not kmeans_init else torch.zeros
+        init_fn = uniform_init if not kmeans_init else torch.zeros
         embed = init_fn(codebook_size, dim)
 
         self.codebook_size = codebook_size
@@ -268,7 +273,7 @@ class CosineSimCodebook(nn.Module):
         self.decay = decay
 
         if not kmeans_init:
-            embed = l2norm(torch.randn(codebook_size, dim))
+            embed = l2norm(uniform_init(codebook_size, dim))
         else:
             embed = torch.zeros(codebook_size, dim)
 
