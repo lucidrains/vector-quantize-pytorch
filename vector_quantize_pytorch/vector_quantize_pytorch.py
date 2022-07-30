@@ -132,9 +132,7 @@ def kmeans(
         if use_cosine_sim:
             dists = samples @ rearrange(means, 'h n d -> h d n')
         else:
-            diffs = rearrange(samples, '... n d -> ... n 1 d') - \
-                    rearrange(means, '... c d -> ... 1 c d')
-            dists = -(diffs ** 2).sum(dim = -1)
+            dists = -torch.cdist(samples, means, p = 2)
 
         buckets = torch.argmax(dists, dim = -1)
         bins = batched_bincount(buckets, minlength = num_clusters)
@@ -275,13 +273,7 @@ class EuclideanCodebook(nn.Module):
 
         embed = self.embed if not self.learnable_codebook else self.embed.detach()
 
-        embed = rearrange(embed, '... n d -> ... d n')
-
-        dist = -(
-            (flatten ** 2).sum(dim = -1, keepdim=True)
-            - 2 * flatten @ embed
-            + (embed ** 2).sum(dim = -2, keepdim=True)
-        )
+        dist = -torch.cdist(flatten, embed, p = 2)
 
         embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
