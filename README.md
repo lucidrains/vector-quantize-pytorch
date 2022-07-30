@@ -188,8 +188,9 @@ from vector_quantize_pytorch import VectorQuantize
 
 vq = VectorQuantize(
     dim = 256,
-    codebook_dim = 32,         # a number of papers have shown smaller codebook dimension to be acceptable
-    heads = 8,                 # number of heads to vector quantize, codebook shared across all heads
+    codebook_dim = 32,                  # a number of papers have shown smaller codebook dimension to be acceptable
+    heads = 8,                          # number of heads to vector quantize, codebook shared across all heads
+    separate_codebook_per_head = True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
     codebook_size = 8196,
     accept_image_fmap = True
 )
