@@ -166,7 +166,7 @@ def batched_embedding(indices, embeds):
 
 # regularization losses
 
-def orthgonal_loss_fn(t):
+def orthogonal_loss_fn(t):
     # eq (2) from https://arxiv.org/abs/2112.00384
     h, n = t.shape[:2]
     normed_codes = l2norm(t)
@@ -506,7 +506,11 @@ class VectorQuantize(nn.Module):
 
     @property
     def codebook(self):
-        return self._codebook.embed
+        codebook = self._codebook.embed
+        if self.separate_codebook_per_head:
+            return codebook
+
+        return rearrange(codebook, '1 ... -> ...')
 
     def forward(self, x):
         shape, device, heads, is_multiheaded, codebook_size = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size
@@ -539,7 +543,7 @@ class VectorQuantize(nn.Module):
                 loss = loss + commit_loss * self.commitment_weight
 
             if self.orthogonal_reg_weight > 0:
-                codebook = self.codebook
+                codebook = self._codebook.embed
 
                 if self.orthogonal_reg_active_codes_only:
                     # only calculate orthogonal loss for the activated codes for this batch
@@ -551,7 +555,7 @@ class VectorQuantize(nn.Module):
                     rand_ids = torch.randperm(num_codes, device = device)[:self.orthogonal_reg_max_codes]
                     codebook = codebook[rand_ids]
 
-                orthogonal_reg_loss = orthgonal_loss_fn(codebook)
+                orthogonal_reg_loss = orthogonal_loss_fn(codebook)
                 loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
 
         if is_multiheaded:
