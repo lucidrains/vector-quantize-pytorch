@@ -299,7 +299,11 @@ class EuclideanCodebook(nn.Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
-        return quantize, embed_ind
+        # perplexity
+        avg_probs = torch.mean(embed_onehot, dim = [0, 1]) # over head and batch
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+
+        return quantize, embed_ind, perplexity
 
 class CosineSimCodebook(nn.Module):
     def __init__(
@@ -437,7 +441,11 @@ class CosineSimCodebook(nn.Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
-        return quantize, embed_ind
+        # perplexity
+        avg_probs = torch.mean(embed_onehot, dim = [0,1]) # over heads and batch
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+
+        return quantize, embed_ind, perplexity
 
 # main class
 
@@ -530,7 +538,7 @@ class VectorQuantize(nn.Module):
             ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
             x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
 
-        quantize, embed_ind = self._codebook(x)
+        quantize, embed_ind, perplexity = self._codebook(x)
 
         if self.training:
             quantize = x + (quantize - x).detach()
@@ -575,4 +583,4 @@ class VectorQuantize(nn.Module):
             quantize = rearrange(quantize, 'b (h w) c -> b c h w', h = height, w = width)
             embed_ind = rearrange(embed_ind, 'b (h w) ... -> b h w ...', h = height, w = width)
 
-        return quantize, embed_ind, loss
+        return quantize, embed_ind, loss, perplexity

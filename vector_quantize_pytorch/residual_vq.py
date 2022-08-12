@@ -30,14 +30,16 @@ class ResidualVQ(nn.Module):
 
         all_losses = []
         all_indices = []
+        all_perplexities = []
 
         for layer in self.layers:
-            quantized, indices, loss = layer(residual)
+            quantized, indices, loss, perplexity = layer(residual)
             residual = residual - quantized
             quantized_out = quantized_out + quantized
 
             all_indices.append(indices)
             all_losses.append(loss)
+            all_perplexities.append(perplexity)
 
-        all_losses, all_indices = map(partial(torch.stack, dim = -1), (all_losses, all_indices))
-        return quantized_out, all_indices, all_losses
+        all_losses, all_indices, all_perplexities = map(partial(torch.stack, dim = -1), (all_losses, all_indices, all_perplexities))
+        return quantized_out, all_indices, all_losses, all_perplexities
