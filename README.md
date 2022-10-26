@@ -48,6 +48,12 @@ quantized, indices, commit_loss = residual_vq(x)
 
 # (1, 1024, 256), (1, 1024, 8), (1, 8)
 # (batch, seq, dim), (batch, seq, quantizer), (batch, quantizer)
+
+# if you need all the codes across the quantization layers, just pass return_all_codes = True
+
+quantized, indices, commit_loss all_codes = residual_vq(x, return_all_codes = True)
+
+# all_codes - (quantizer, batch, seq, dim)
 ```
 
 Furthermore, <a href="https://arxiv.org/abs/2203.01941">this paper</a> uses Residual-VQ to construct the RQ-VAE, for generating high resolution images with more compressed codes.

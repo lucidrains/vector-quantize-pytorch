@@ -1,7 +1,10 @@
 from functools import partial
+
 import torch
 from torch import nn
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
+
+from einops import rearrange, repeat
 
 class ResidualVQ(nn.Module):
     """ Follows Algorithm 1. in https://arxiv.org/pdf/2107.03312.pdf """
@@ -10,9 +13,12 @@ class ResidualVQ(nn.Module):
         *,
         num_quantizers,
         shared_codebook = False,
+        heads = 1,
         **kwargs
     ):
         super().__init__()
+        assert heads == 1, 'residual vq is not compatible with multi-headed codes'
+
         self.layers = nn.ModuleList([VectorQuantize(**kwargs) for _ in range(num_quantizers)])
 
         if not shared_codebook:
@@ -24,7 +30,18 @@ class ResidualVQ(nn.Module):
         for vq in rest_vq:
             vq._codebook = codebook
 
-    def forward(self, x):
+    @property
+    def codebooks(self):
+        codebooks = [layer._codebook.embed for layer in self.layers]
+        codebooks = torch.stack(codebooks, dim = 0)
+        codebooks = rearrange(codebooks, 'q 1 c d -> q c d')
+        return codebooks
+
+    def forward(
+        self,
+        x,
+        return_all_codes = False
+    ):
         quantized_out = 0.
         residual = x
 
@@ -40,4 +57,18 @@ class ResidualVQ(nn.Module):
             all_losses.append(loss)
 
         all_losses, all_indices = map(partial(torch.stack, dim = -1), (all_losses, all_indices))
-        return quantized_out, all_indices, all_losses
+
+        ret = (quantized_out, all_indices, all_losses)
+
+        if return_all_codes:
+            # whether to return all codes from all codebooks across layers
+
+            codebooks = repeat(self.codebooks, 'q c d -> q b c d', b = x.shape[0])
+            gather_indices = repeat(all_indices, 'b n q -> q b n d', d = codebooks.shape[-1])
+
+            all_codes = codebooks.gather(2, gather_indices) # gather all codes
+
+            # will return all codes in shape (quantizer, batch, sequence length, codebook dimension)
+            ret = (*ret, all_codes)
+
+        return ret
