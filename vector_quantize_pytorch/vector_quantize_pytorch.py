@@ -94,6 +94,8 @@ def all_gather_variably_sized(x, sizes, dim = 0):
     return all_x
 
 def sample_vectors_distributed(local_samples, num):
+    local_samples = rearrange(local_samples, '1 ... -> ...')
+
     rank = distributed.get_rank()
     all_num_samples = all_gather_sizes(local_samples, dim = 0)
 
@@ -107,7 +109,9 @@ def sample_vectors_distributed(local_samples, num):
 
     local_samples = batched_sample_vectors(local_samples, samples_per_rank[rank])
     all_samples = all_gather_variably_sized(local_samples, samples_per_rank, dim = 0)
-    return torch.cat(all_samples, dim = 0)
+    out = torch.cat(all_samples, dim = 0)
+
+    return rearrange(out, '... -> 1 ...')
 
 def batched_bincount(x, *, minlength):
     batch, dtype, device = x.shape[0], x.dtype, x.device
@@ -184,6 +188,7 @@ class EuclideanCodebook(nn.Module):
         num_codebooks = 1,
         kmeans_init = False,
         kmeans_iters = 10,
+        sync_kmeans = True,
         decay = 0.8,
         eps = 1e-5,
         threshold_ema_dead_code = 2,
@@ -204,7 +209,10 @@ class EuclideanCodebook(nn.Module):
         self.threshold_ema_dead_code = threshold_ema_dead_code
         self.sample_codebook_temp = sample_codebook_temp
 
-        self.sample_fn = sample_vectors_distributed if use_ddp else batched_sample_vectors
+        assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
+
+        self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+        self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
@@ -227,7 +235,7 @@ class EuclideanCodebook(nn.Module):
             self.codebook_size,
             self.kmeans_iters,
             sample_fn = self.sample_fn,
-            all_reduce_fn = self.all_reduce_fn
+            all_reduce_fn = self.kmeans_all_reduce_fn
         )
 
         self.embed.data.copy_(embed)
@@ -309,6 +317,7 @@ class CosineSimCodebook(nn.Module):
         num_codebooks = 1,
         kmeans_init = False,
         kmeans_iters = 10,
+        sync_kmeans = True,
         decay = 0.8,
         eps = 1e-5,
         threshold_ema_dead_code = 2,
@@ -332,7 +341,8 @@ class CosineSimCodebook(nn.Module):
         self.threshold_ema_dead_code = threshold_ema_dead_code
         self.sample_codebook_temp = sample_codebook_temp
 
-        self.sample_fn = sample_vectors_distributed if use_ddp else batched_sample_vectors
+        self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+        self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
@@ -355,7 +365,7 @@ class CosineSimCodebook(nn.Module):
             self.kmeans_iters,
             use_cosine_sim = True,
             sample_fn = self.sample_fn,
-            all_reduce_fn = self.all_reduce_fn
+            all_reduce_fn = self.kmeans_all_reduce_fn
         )
 
         self.embed.data.copy_(embed)
@@ -453,6 +463,7 @@ class VectorQuantize(nn.Module):
         eps = 1e-5,
         kmeans_init = False,
         kmeans_iters = 10,
+        sync_kmeans = True,
         use_cosine_sim = False,
         threshold_ema_dead_code = 0,
         channel_last = True,
@@ -491,6 +502,7 @@ class VectorQuantize(nn.Module):
             codebook_size = codebook_size,
             kmeans_init = kmeans_init,
             kmeans_iters = kmeans_iters,
+            sync_kmeans = sync_kmeans,
             decay = decay,
             eps = eps,
             threshold_ema_dead_code = threshold_ema_dead_code,
