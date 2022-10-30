@@ -78,7 +78,6 @@ def all_gather_sizes(x, dim):
     size = torch.tensor(x.shape[dim], dtype = torch.long, device = x.device)
     all_sizes = [torch.empty_like(size) for _ in range(distributed.get_world_size())]
     distributed.all_gather(all_sizes, size)
-
     return torch.stack(all_sizes)
 
 def all_gather_variably_sized(x, sizes, dim = 0):
@@ -107,7 +106,7 @@ def sample_vectors_distributed(local_samples, num):
     distributed.broadcast(samples_per_rank, src = 0)
     samples_per_rank = samples_per_rank.tolist()
 
-    local_samples = batched_sample_vectors(local_samples, samples_per_rank[rank])
+    local_samples = sample_vectors(local_samples, samples_per_rank[rank])
     all_samples = all_gather_variably_sized(local_samples, samples_per_rank, dim = 0)
     out = torch.cat(all_samples, dim = 0)
 
