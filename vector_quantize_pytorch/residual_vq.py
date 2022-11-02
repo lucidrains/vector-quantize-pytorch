@@ -37,6 +37,14 @@ class ResidualVQ(nn.Module):
         codebooks = rearrange(codebooks, 'q 1 c d -> q c d')
         return codebooks
 
+    def get_codes_from_indices(self, indices):
+        batch = indices.shape[0]
+        codebooks = repeat(self.codebooks, 'q c d -> q b c d', b = batch)
+        gather_indices = repeat(indices, 'b n q -> q b n d', d = codebooks.shape[-1])
+
+        all_codes = codebooks.gather(2, gather_indices) # gather all codes
+        return all_codes
+
     def forward(
         self,
         x,
@@ -62,11 +70,7 @@ class ResidualVQ(nn.Module):
 
         if return_all_codes:
             # whether to return all codes from all codebooks across layers
-
-            codebooks = repeat(self.codebooks, 'q c d -> q b c d', b = x.shape[0])
-            gather_indices = repeat(all_indices, 'b n q -> q b n d', d = codebooks.shape[-1])
-
-            all_codes = codebooks.gather(2, gather_indices) # gather all codes
+            all_codes = self.get_codes_from_indices(all_indices)
 
             # will return all codes in shape (quantizer, batch, sequence length, codebook dimension)
             ret = (*ret, all_codes)
