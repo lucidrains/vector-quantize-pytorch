@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'vector_quantize_pytorch',
   packages = find_packages(),
-  version = '0.10.4',
+  version = '0.10.5',
   license='MIT',
   description = 'Vector Quantization - Pytorch',
   long_description_content_type = 'text/markdown',
