@@ -173,9 +173,8 @@ def orthogonal_loss_fn(t):
     # eq (2) from https://arxiv.org/abs/2112.00384
     h, n = t.shape[:2]
     normed_codes = l2norm(t)
-    identity = repeat(torch.eye(n, device = t.device), 'i j -> h i j', h = h)
     cosine_sim = einsum('h i d, h j d -> h i j', normed_codes, normed_codes)
-    return ((cosine_sim - identity) ** 2).sum() / (h * n ** 2)
+    return (cosine_sim ** 2).sum() / (h * n ** 2) - (1 / n)
 
 # distance types
 
