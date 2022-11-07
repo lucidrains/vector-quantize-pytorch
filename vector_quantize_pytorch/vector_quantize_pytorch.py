@@ -522,7 +522,11 @@ class VectorQuantize(nn.Module):
 
         return rearrange(codebook, '1 ... -> ...')
 
-    def forward(self, x):
+    def forward(
+        self,
+        x,
+        mask = None
+    ):
         shape, device, heads, is_multiheaded, codebook_size = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
@@ -549,7 +553,19 @@ class VectorQuantize(nn.Module):
 
         if self.training:
             if self.commitment_weight > 0:
-                commit_loss = F.mse_loss(quantize.detach(), x)
+                detached_quantize = quantize.detach()
+
+                if exists(mask):
+                    # with variable lengthed sequences
+                    commit_loss = F.mse_loss(detached_quantize, x, reduction = 'none')
+
+                    if is_multiheaded:
+                        mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
+
+                    commit_loss = commit_loss[mask].mean()
+                else:
+                    commit_loss = F.mse_loss(detached_quantize, x)
+
                 loss = loss + commit_loss * self.commitment_weight
 
             if self.orthogonal_reg_weight > 0:
