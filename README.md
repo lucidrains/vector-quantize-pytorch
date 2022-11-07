@@ -263,7 +263,7 @@ if __name__ == '__main__':
 ## Todo
 
 - [x] allow for multi-headed codebooks
-- [ ] support masking
+- [x] support masking
 
 
 ## Citations
