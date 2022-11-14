@@ -84,7 +84,7 @@ class ResidualVQ(nn.Module):
 
             if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
                 null_indices = torch.full((b, n), -1., device = device, dtype = torch.long)
-                null_loss = torch.full((b,), 0., device = device, dtype = x.dtype)
+                null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
 
                 all_indices.append(null_indices)
                 all_losses.append(null_loss)
