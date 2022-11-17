@@ -3,6 +3,7 @@ from random import randrange
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat
@@ -48,11 +49,22 @@ class ResidualVQ(nn.Module):
         return codebooks
 
     def get_codes_from_indices(self, indices):
-        batch = indices.shape[0]
+        batch, quantize_dim = indices.shape[0], indices.shape[-1]
+
+        # because of quantize dropout, one can pass in indices that are coarse
+        # and the network should be able to reconstruct
+
+        if quantize_dim < self.num_quantizers:
+            assert self.quantize_dropout > 0., 'quantize dropout must be greater than 0 if you wish to reconstruct from a signal with less fine quantizations'
+            indices = F.pad(indices, (0, self.num_quantizers - quantize_dim), value = -1)
+
+        # get ready for gathering
+
         codebooks = repeat(self.codebooks, 'q c d -> q b c d', b = batch)
         gather_indices = repeat(indices, 'b n q -> q b n d', d = codebooks.shape[-1])
 
         # take care of quantizer dropout
+
         mask = gather_indices == -1.
         gather_indices = gather_indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
 
