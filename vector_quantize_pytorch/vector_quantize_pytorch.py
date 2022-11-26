@@ -295,6 +295,7 @@ class EuclideanCodebook(nn.Module):
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum.contiguous())
+            ema_inplace(self.embed_avg, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum()
 
