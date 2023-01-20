@@ -242,8 +242,6 @@ class EuclideanCodebook(nn.Module):
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, batch_samples, batch_mask):
-        batch_samples = l2norm(batch_samples)
-
         for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
             if not torch.any(mask):
                 continue
