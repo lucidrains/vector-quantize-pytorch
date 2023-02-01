@@ -526,6 +526,11 @@ class VectorQuantize(nn.Module):
         x,
         mask = None
     ):
+        only_one = x.ndim == 2
+
+        if only_one:
+            x = rearrange(x, 'b d -> b 1 d')
+
         shape, device, heads, is_multiheaded, codebook_size = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
@@ -599,5 +604,9 @@ class VectorQuantize(nn.Module):
         if self.accept_image_fmap:
             quantize = rearrange(quantize, 'b (h w) c -> b c h w', h = height, w = width)
             embed_ind = rearrange(embed_ind, 'b (h w) ... -> b h w ...', h = height, w = width)
+
+        if only_one:
+            quantize = rearrange(quantize, 'b 1 d -> b d')
+            embed_ind = rearrange(embed_ind, 'b 1 -> b')
 
         return quantize, embed_ind, loss
