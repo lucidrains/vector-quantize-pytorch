@@ -37,9 +37,6 @@ def gumbel_sample(t, temperature = 1., dim = -1):
 
     return ((t / temperature) + gumbel_noise(t)).argmax(dim = dim)
 
-def ema_inplace(moving_avg, new, decay):
-    moving_avg.data.mul_(decay).add_(new, alpha = (1 - decay))
-
 def laplace_smoothing(x, n_categories, eps = 1e-5):
     return (x + eps) / (x.sum() + n_categories * eps)
 
@@ -289,11 +286,11 @@ class EuclideanCodebook(nn.Module):
             cluster_size = embed_onehot.sum(dim = 1)
 
             self.all_reduce_fn(cluster_size)
-            ema_inplace(self.cluster_size, cluster_size, self.decay)
+            self.cluster_size.data.lerp_(cluster_size, 1 - self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum.contiguous())
-            ema_inplace(self.embed_avg, embed_sum, self.decay)
+            self.embed_avg.data.lerp_(embed_sum, 1 - self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum()
 
@@ -421,7 +418,7 @@ class CosineSimCodebook(nn.Module):
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
 
-            ema_inplace(self.cluster_size, bins, self.decay)
+            self.cluster_size.data.lerp_(bins, 1 - self.decay)
 
             zero_mask = (bins == 0)
             bins = bins.masked_fill(zero_mask, 1.)
@@ -438,7 +435,7 @@ class CosineSimCodebook(nn.Module):
                 embed_normalized
             )
 
-            ema_inplace(self.embed, embed_normalized, self.decay)
+            self.embed.data.lerp_(embed_normalized, 1 - self.decay)
             self.expire_codes_(x)
 
         if needs_codebook_dim:
