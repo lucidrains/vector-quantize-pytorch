@@ -6,7 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
-from einops import rearrange, repeat
+from einops import rearrange, repeat, pack, unpack
 
 class ResidualVQ(nn.Module):
     """ Follows Algorithm 1. in https://arxiv.org/pdf/2107.03312.pdf """
@@ -18,6 +18,7 @@ class ResidualVQ(nn.Module):
         heads = 1,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
+        accept_image_fmap = False,
         **kwargs
     ):
         super().__init__()
@@ -25,7 +26,8 @@ class ResidualVQ(nn.Module):
 
         self.num_quantizers = num_quantizers
 
-        self.layers = nn.ModuleList([VectorQuantize(**kwargs) for _ in range(num_quantizers)])
+        self.accept_image_fmap = accept_image_fmap
+        self.layers = nn.ModuleList([VectorQuantize(accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
 
         self.quantize_dropout = quantize_dropout
 
@@ -49,7 +51,12 @@ class ResidualVQ(nn.Module):
         return codebooks
 
     def get_codes_from_indices(self, indices):
+
         batch, quantize_dim = indices.shape[0], indices.shape[-1]
+
+        # may also receive indices in the shape of 'b h w q' (accept_image_fmap)
+
+        indices, ps = pack([indices], 'b * q')
 
         # because of quantize dropout, one can pass in indices that are coarse
         # and the network should be able to reconstruct
@@ -71,7 +78,13 @@ class ResidualVQ(nn.Module):
         all_codes = codebooks.gather(2, gather_indices) # gather all codes
 
         # mask out any codes that were dropout-ed
+
         all_codes = all_codes.masked_fill(mask, 0.)
+
+        # if (accept_image_fmap = True) then return shape (quantize, batch, height, width, dimension)
+
+        all_codes, = unpack(all_codes, ps, 'q b * d')
+
         return all_codes
 
     def forward(
@@ -79,8 +92,7 @@ class ResidualVQ(nn.Module):
         x,
         return_all_codes = False
     ):
-        b, n, *_, num_quant, device = *x.shape, self.num_quantizers, x.device
-
+        num_quant, device = self.num_quantizers, x.device
         quantized_out = 0.
         residual = x
 
@@ -92,10 +104,12 @@ class ResidualVQ(nn.Module):
         if should_quantize_dropout:
             rand_quantize_dropout_index = randrange(self.quantize_dropout_cutoff_index, num_quant)
 
+        null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.accept_image_fmap else tuple(x.shape[:2])
+
         for quantizer_index, layer in enumerate(self.layers):
 
             if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
-                null_indices = torch.full((b, n), -1., device = device, dtype = torch.long)
+                null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
                 null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
 
                 all_indices.append(null_indices)
