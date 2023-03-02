@@ -110,20 +110,24 @@ class ResidualVQ(nn.Module):
 
         should_quantize_dropout = self.training and self.quantize_dropout
 
+        # sample a layer index at which to dropout further residual quantization
+        # also prepare null indices and loss
+
         if should_quantize_dropout:
             rand_quantize_dropout_index = randrange(self.quantize_dropout_cutoff_index, num_quant)
 
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
-        null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.accept_image_fmap else tuple(x.shape[:2])
+            null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.accept_image_fmap else tuple(x.shape[:2])
+            null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
+            null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
+
+        # go through the layers
 
         for quantizer_index, layer in enumerate(self.layers):
 
             if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
-                null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
-                null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
-
                 all_indices.append(null_indices)
                 all_losses.append(null_loss)
                 continue
