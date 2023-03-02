@@ -320,3 +320,13 @@ if __name__ == '__main__':
     title   = {Autoregressive Image Generation using Residual Quantization}
 }
 ```
+
+```bibtex
+@article{Defossez2022HighFN,
+    title   = {High Fidelity Neural Audio Compression},
+    author  = {Alexandre D'efossez and Jade Copet and Gabriel Synnaeve and Yossi Adi},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2210.13438}
+}
+```

@@ -8,6 +8,13 @@ from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, pack, unpack
 
+# functions
+
+def divisible_by(numer, denom):
+    return (numer % denom) == 0
+
+# main class
+
 class ResidualVQ(nn.Module):
     """ Follows Algorithm 1. in https://arxiv.org/pdf/2107.03312.pdf """
     def __init__(
@@ -18,6 +25,7 @@ class ResidualVQ(nn.Module):
         heads = 1,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
+        quantize_dropout_multiple_of = 1,
         accept_image_fmap = False,
         **kwargs
     ):
@@ -32,7 +40,9 @@ class ResidualVQ(nn.Module):
         self.quantize_dropout = quantize_dropout
 
         assert quantize_dropout_cutoff_index >= 0
+
         self.quantize_dropout_cutoff_index = quantize_dropout_cutoff_index
+        self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
 
         if not shared_codebook:
             return
@@ -108,7 +118,7 @@ class ResidualVQ(nn.Module):
 
         for quantizer_index, layer in enumerate(self.layers):
 
-            if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
+            if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index and divisible_by(quantizer_index + 1, self.quantize_dropout_multiple_of):
                 null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
                 null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
 
