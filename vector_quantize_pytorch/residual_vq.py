@@ -1,3 +1,4 @@
+from math import ceil
 from functools import partial
 from random import randrange
 
@@ -7,6 +8,11 @@ import torch.nn.functional as F
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, pack, unpack
+
+def round_up_multiple(num, mult):
+    return ceil(num / mult) * mult
+
+# main class
 
 class ResidualVQ(nn.Module):
     """ Follows Algorithm 1. in https://arxiv.org/pdf/2107.03312.pdf """
@@ -18,6 +24,7 @@ class ResidualVQ(nn.Module):
         heads = 1,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
+        quantize_dropout_multiple_of = 1,
         accept_image_fmap = False,
         **kwargs
     ):
@@ -32,7 +39,9 @@ class ResidualVQ(nn.Module):
         self.quantize_dropout = quantize_dropout
 
         assert quantize_dropout_cutoff_index >= 0
+
         self.quantize_dropout_cutoff_index = quantize_dropout_cutoff_index
+        self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
 
         if not shared_codebook:
             return
@@ -92,7 +101,7 @@ class ResidualVQ(nn.Module):
         x,
         return_all_codes = False
     ):
-        num_quant, device = self.num_quantizers, x.device
+        num_quant, quant_dropout_multiple_of, device = self.num_quantizers, self.quantize_dropout_multiple_of, x.device
         quantized_out = 0.
         residual = x
 
@@ -103,6 +112,9 @@ class ResidualVQ(nn.Module):
 
         if should_quantize_dropout:
             rand_quantize_dropout_index = randrange(self.quantize_dropout_cutoff_index, num_quant)
+
+            if quant_dropout_multiple_of != 1:
+                rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
         null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.accept_image_fmap else tuple(x.shape[:2])
 
