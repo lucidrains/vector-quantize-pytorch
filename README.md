@@ -209,6 +209,26 @@ quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32, 8), (1,)
 # indices shape - (batch, height, width, heads)
 # loss now contains the orthogonal regularization loss with the weight as assigned
 ```
+### Random Projection Quantizer
+
+<a href="https://arxiv.org/abs/2202.01855">This paper</a> first proposed to use a random projection quantizer for masked speech modeling, where signals are projected with a randomly initialized matrix and then matched with a random initialized codebook. One therefore does not need to learn the quantizer. This technique was used by Google's <a href="https://ai.googleblog.com/2023/03/universal-speech-model-usm-state-of-art.html">Universal Speech Model</a> to achieve SOTA for speech-to-text modeling.
+
+USM further proposes to use multiple codebook, and the masked speech modeling with a multi-softmax objective. You can do this easily by setting `num_codebooks` to be greater than 1
+
+```python
+import torch
+from vector_quantize_pytorch import RandomProjectionQuantizer
+
+quantizer = RandomProjectionQuantizer(
+    dim = 512,               # input dimensions
+    num_codebooks = 16,      # in USM, they used up to 16 for 5% gain
+    codebook_dim = 256,      # codebook dimension
+    codebook_size = 1024     # codebook size
+)
+
+x = torch.randn(1, 1024, 512)
+indices = quantizer(x) # (1, 1024, 16) - (batch, seq, num_codebooks)
+```
 
 ### DDP
 
@@ -328,5 +348,22 @@ if __name__ == '__main__':
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2210.13438}
+}
+```
+
+```bibtex
+@inproceedings{Chiu2022SelfsupervisedLW,
+    title   = {Self-supervised Learning with Random-projection Quantizer for Speech Recognition},
+    author  = {Chung-Cheng Chiu and James Qin and Yu Zhang and Jiahui Yu and Yonghui Wu},
+    booktitle = {International Conference on Machine Learning},
+    year    = {2022}
+}
+```
+
+```bibtex
+@inproceedings{Zhang2023GoogleUS,
+    title   = {Google USM: Scaling Automatic Speech Recognition Beyond 100 Languages},
+    author  = {Yu Zhang and Wei Han and James Qin and Yongqiang Wang and Ankur Bapna and Zhehuai Chen and Nanxin Chen and Bo Li and Vera Axelrod and Gary Wang and Zhong Meng and Ke Hu and Andrew Rosenberg and Rohit Prabhavalkar and Daniel S. Park and Parisa Haghani and Jason Riesa and Ginger Perng and Hagen Soltau and Trevor Strohman and Bhuvana Ramabhadran and Tara N. Sainath and Pedro J. Moreno and Chung-Cheng Chiu and Johan Schalkwyk and Franccoise Beaufays and Yonghui Wu},
+    year    = {2023}
 }
 ```
