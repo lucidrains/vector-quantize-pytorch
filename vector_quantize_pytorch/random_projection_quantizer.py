@@ -34,6 +34,7 @@ class RandomProjectionQuantizer(nn.Module):
             **kwargs
         )
 
+    @torch.no_grad()
     def forward(self, x):
 
         x = einsum('b n d, h d e -> b n h e', x, self.rand_projs)
