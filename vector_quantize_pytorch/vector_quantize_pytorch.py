@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch.distributed as distributed
 from torch.cuda.amp import autocast
 
-from einops import rearrange, repeat
+from einops import rearrange, repeat, pack, unpack
 from contextlib import contextmanager
 
 def exists(val):
@@ -470,6 +470,7 @@ class VectorQuantize(nn.Module):
         sync_codebook = False
     ):
         super().__init__()
+        self.dim = dim
         self.heads = heads
         self.separate_codebook_per_head = separate_codebook_per_head
 
@@ -517,6 +518,25 @@ class VectorQuantize(nn.Module):
             return codebook
 
         return rearrange(codebook, '1 ... -> ...')
+
+    def get_codes_from_indices(self, indices):
+        codebook = self.codebook
+        is_multiheaded = codebook.ndim > 2
+
+        if not is_multiheaded:
+            codes = codebook[indices]
+            return rearrange(codes, '... h d -> ... (h d)')
+
+        indices, ps = pack([indices], 'b * h')
+        indices = rearrange(indices, 'b n h -> b h n')
+
+        indices = repeat(indices, 'b h n -> b h n d', d = codebook.shape[-1])
+        codebook = repeat(codebook, 'h n d -> b h n d', b = indices.shape[0])
+
+        codes = codebook.gather(2, indices)
+        codes = rearrange(codes, 'b h n d -> b n (h d)')
+        codes, = unpack(codes, ps, 'b * d')
+        return codes
 
     def forward(
         self,
