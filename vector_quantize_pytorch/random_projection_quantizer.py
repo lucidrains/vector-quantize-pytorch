@@ -25,6 +25,11 @@ class RandomProjectionQuantizer(nn.Module):
 
         self.register_buffer('rand_projs', rand_projs)
 
+        # in section 3 of https://arxiv.org/abs/2202.01855
+        # "The input data is normalized to have 0 mean and standard deviation of 1 ... to prevent collapse"
+
+        self.norm = nn.LayerNorm(dim, elementwise_affine = False)
+
         self.vq = VectorQuantize(
             dim = codebook_dim * num_codebooks,
             heads = num_codebooks,
@@ -36,6 +41,8 @@ class RandomProjectionQuantizer(nn.Module):
 
     @torch.no_grad()
     def forward(self, x):
+
+        x = self.norm(x)
 
         x = einsum('b n d, h d e -> b n h e', x, self.rand_projs)
         x, ps = pack([x], 'b n *')
