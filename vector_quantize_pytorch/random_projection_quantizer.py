@@ -15,6 +15,7 @@ class RandomProjectionQuantizer(nn.Module):
         codebook_size,
         codebook_dim,
         num_codebooks = 1,
+        norm = True,
         **kwargs
     ):
         super().__init__()
@@ -28,7 +29,7 @@ class RandomProjectionQuantizer(nn.Module):
         # in section 3 of https://arxiv.org/abs/2202.01855
         # "The input data is normalized to have 0 mean and standard deviation of 1 ... to prevent collapse"
 
-        self.norm = nn.LayerNorm(dim, elementwise_affine = False)
+        self.norm = nn.LayerNorm(dim, elementwise_affine = False) if norm else nn.Identity()
 
         self.vq = VectorQuantize(
             dim = codebook_dim * num_codebooks,
