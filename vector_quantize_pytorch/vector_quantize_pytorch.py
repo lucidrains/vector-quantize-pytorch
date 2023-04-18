@@ -592,15 +592,18 @@ class VectorQuantize(nn.Module):
             if self.orthogonal_reg_weight > 0:
                 codebook = self._codebook.embed
 
-                if self.orthogonal_reg_active_codes_only:
-                    # only calculate orthogonal loss for the activated codes for this batch
-                    unique_code_ids = torch.unique(embed_ind)
-                    codebook = codebook[unique_code_ids]
+                # only calculate orthogonal loss for the activated codes for this batch
 
-                num_codes = codebook.shape[0]
+                if self.orthogonal_reg_active_codes_only:
+                    assert not (is_multiheaded and self.separate_codebook_per_head), 'orthogonal regularization for only active codes not compatible with multi-headed with separate codebooks yet'
+                    unique_code_ids = torch.unique(embed_ind)
+                    codebook = codebook[:, unique_code_ids]
+
+                num_codes = codebook.shape[-2]
+
                 if exists(self.orthogonal_reg_max_codes) and num_codes > self.orthogonal_reg_max_codes:
                     rand_ids = torch.randperm(num_codes, device = device)[:self.orthogonal_reg_max_codes]
-                    codebook = codebook[rand_ids]
+                    codebook = codebook[:, rand_ids]
 
                 orthogonal_reg_loss = orthogonal_loss_fn(codebook)
                 loss = loss + orthogonal_reg_loss * self.orthogonal_reg_weight
