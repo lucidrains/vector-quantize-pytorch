@@ -22,6 +22,12 @@ def l2norm(t):
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
+def pack_one(t, pattern):
+    return pack([t], pattern)
+
+def unpack_one(t, ps, pattern):
+    return unpack(t, ps, pattern)[0]
+
 def uniform_init(*shape):
     t = torch.empty(shape)
     nn.init.kaiming_uniform_(t)
@@ -268,7 +274,7 @@ class EuclideanCodebook(nn.Module):
             x = rearrange(x, '... -> 1 ...')
 
         shape, dtype = x.shape, x.dtype
-        flatten = rearrange(x, 'h ... d -> h (...) d')
+        flatten, ps = pack_one(x, 'h * d')
 
         self.init_embed_(flatten)
 
@@ -300,6 +306,8 @@ class EuclideanCodebook(nn.Module):
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
+
+        dist = unpack_one(dist, ps, 'h * d')
 
         return quantize, embed_ind, dist
 
@@ -399,7 +407,7 @@ class CosineSimCodebook(nn.Module):
 
         shape, dtype = x.shape, x.dtype
 
-        flatten = rearrange(x, 'h ... d -> h (...) d')
+        flatten, ps = pack_one(x, 'h * d')
         flatten = l2norm(flatten)
 
         self.init_embed_(flatten)
@@ -441,6 +449,7 @@ class CosineSimCodebook(nn.Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
+        dist = unpack_one(dist, ps, 'h * d')
         return quantize, embed_ind, dist
 
 # main class
@@ -527,7 +536,7 @@ class VectorQuantize(nn.Module):
             codes = codebook[indices]
             return rearrange(codes, '... h d -> ... (h d)')
 
-        indices, ps = pack([indices], 'b * h')
+        indices, ps = pack_one(indices, 'b * h')
         indices = rearrange(indices, 'b n h -> b h n')
 
         indices = repeat(indices, 'b h n -> b h n d', d = codebook.shape[-1])
@@ -535,7 +544,7 @@ class VectorQuantize(nn.Module):
 
         codes = codebook.gather(2, indices)
         codes = rearrange(codes, 'b h n d -> b n (h d)')
-        codes, = unpack(codes, ps, 'b * d')
+        codes = unpack_one(codes, ps, 'b * d')
         return codes
 
     def forward(
@@ -573,12 +582,13 @@ class VectorQuantize(nn.Module):
 
         if return_loss:
             if not is_multiheaded:
-                distances = rearrange(distances, '1 (b n) l -> b l n', b = shape[0])
+                dist_einops_eq = '1 b n l -> b l n'
             elif self.separate_codebook_per_head:
-                distances = rearrange(distances, 'c (b n) l -> b l n c', b = shape[0])
+                dist_einops_eq = 'c b n l -> b l n c'
             else:
-                distances = rearrange(distances, '1 (b h n) l -> b l n h', b = shape[0], h = heads)
+                dist_einops_eq = '1 (b h) n l -> b l n h'
 
+            distances = rearrange(distances, dist_einops_eq, b = shape[0])
             return quantize, F.cross_entropy(distances, indices, ignore_index = -1)
 
         loss = torch.tensor([0.], device = device, requires_grad = self.training)
