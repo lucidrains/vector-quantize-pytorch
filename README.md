@@ -367,3 +367,11 @@ if __name__ == '__main__':
     year    = {2023}
 }
 ```
+
+```bibtex
+@inproceedings{Shen2023NaturalSpeech2L,
+    title   = {NaturalSpeech 2: Latent Diffusion Models are Natural and Zero-Shot Speech and Singing Synthesizers},
+    author  = {Kai Shen and Zeqian Ju and Xu Tan and Yanqing Liu and Yichong Leng and Lei He and Tao Qin and Sheng Zhao and Jiang Bian},
+    year    = {2023}
+}
+```

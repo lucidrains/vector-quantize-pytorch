@@ -5,6 +5,9 @@ from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, pack, unpack
 
+def exists(val):
+    return val is not None
+
 class RandomProjectionQuantizer(nn.Module):
     """ https://arxiv.org/abs/2202.01855 """
 
@@ -40,8 +43,12 @@ class RandomProjectionQuantizer(nn.Module):
             **kwargs
         )
 
-    @torch.no_grad()
-    def forward(self, x):
+    def forward(
+        self,
+        x,
+        indices = None
+    ):
+        return_loss = exists(indices)
 
         x = self.norm(x)
 
@@ -49,6 +56,11 @@ class RandomProjectionQuantizer(nn.Module):
         x, ps = pack([x], 'b n *')
 
         self.vq.eval()
-        _, indices, _ = self.vq(x)
+        out = self.vq(x, indices = indices)
 
+        if return_loss:
+            _, ce_loss = out
+            return ce_loss
+
+        _, indices, _ = out
         return indices

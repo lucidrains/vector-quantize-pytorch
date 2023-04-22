@@ -301,7 +301,7 @@ class EuclideanCodebook(nn.Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
-        return quantize, embed_ind
+        return quantize, embed_ind, dist
 
 class CosineSimCodebook(nn.Module):
     def __init__(
@@ -441,7 +441,7 @@ class CosineSimCodebook(nn.Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
-        return quantize, embed_ind
+        return quantize, embed_ind, dist
 
 # main class
 
@@ -541,6 +541,7 @@ class VectorQuantize(nn.Module):
     def forward(
         self,
         x,
+        indices = None,
         mask = None
     ):
         only_one = x.ndim == 2
@@ -548,7 +549,7 @@ class VectorQuantize(nn.Module):
         if only_one:
             x = rearrange(x, 'b d -> b 1 d')
 
-        shape, device, heads, is_multiheaded, codebook_size = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size
+        shape, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
 
@@ -565,10 +566,20 @@ class VectorQuantize(nn.Module):
             ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
             x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
 
-        quantize, embed_ind = self._codebook(x)
+        quantize, embed_ind, distances = self._codebook(x)
 
         if self.training:
             quantize = x + (quantize - x).detach()
+
+        if return_loss:
+            if not is_multiheaded:
+                distances = rearrange(distances, '1 (b n) l -> b l n', b = shape[0])
+            elif self.separate_codebook_per_head:
+                distances = rearrange(distances, 'c (b n) l -> b l n c', b = shape[0])
+            else:
+                distances = rearrange(distances, '1 (b h n) l -> b l n h', b = shape[0], h = heads)
+
+            return quantize, F.cross_entropy(distances, indices, ignore_index = -1)
 
         loss = torch.tensor([0.], device = device, requires_grad = self.training)
 

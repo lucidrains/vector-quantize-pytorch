@@ -9,6 +9,11 @@ from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, pack, unpack
 
+# helper functions
+
+def exists(val):
+    return val is not None
+
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
 
@@ -99,16 +104,21 @@ class ResidualVQ(nn.Module):
     def forward(
         self,
         x,
+        indices = None,
         return_all_codes = False
     ):
-        num_quant, quant_dropout_multiple_of, device = self.num_quantizers, self.quantize_dropout_multiple_of, x.device
+        num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
+
+        assert not (self.accept_image_fmap and exists(indices))
+
         quantized_out = 0.
         residual = x
 
         all_losses = []
         all_indices = []
+        ce_losses = []   # for cross entropy losses across quantizers, if indices are passed in
 
-        should_quantize_dropout = self.training and self.quantize_dropout
+        should_quantize_dropout = self.training and self.quantize_dropout and not return_loss
 
         # sample a layer index at which to dropout further residual quantization
         # also prepare null indices and loss
@@ -132,12 +142,31 @@ class ResidualVQ(nn.Module):
                 all_losses.append(null_loss)
                 continue
 
-            quantized, indices, loss = layer(residual)
+            layer_indices = None
+            if return_loss:
+                layer_indices = indices[..., quantizer_index]
+
+            quantized, *rest = layer(residual, indices = layer_indices)
+
             residual = residual - quantized.detach()
             quantized_out = quantized_out + quantized
 
-            all_indices.append(indices)
+            if return_loss:
+                ce_loss = rest[0]
+                ce_losses.append(ce_loss)
+                continue
+
+            embed_indices, loss = rest
+
+            all_indices.append(embed_indices)
             all_losses.append(loss)
+
+        # whether to early return the cross entropy loss
+
+        if return_loss:
+            return quantized_out, sum(ce_losses)
+
+        # stack all losses and indices
 
         all_losses, all_indices = map(partial(torch.stack, dim = -1), (all_losses, all_indices))
 
