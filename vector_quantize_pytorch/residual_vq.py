@@ -116,7 +116,10 @@ class ResidualVQ(nn.Module):
 
         all_losses = []
         all_indices = []
-        ce_losses = []   # for cross entropy losses across quantizers, if indices are passed in
+
+        if return_loss:
+            assert not torch.any(indices == -1), 'some of the residual vq indices were dropped out. please use indices derived when the module is in eval mode to derive cross entropy loss'
+            ce_losses = []
 
         should_quantize_dropout = self.training and self.quantize_dropout and not return_loss
 
