@@ -193,6 +193,7 @@ class EuclideanCodebook(nn.Module):
         decay = 0.8,
         eps = 1e-5,
         threshold_ema_dead_code = 2,
+        reset_cluster_size = None,
         use_ddp = False,
         learnable_codebook = False,
         sample_codebook_temp = 0
@@ -208,6 +209,7 @@ class EuclideanCodebook(nn.Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
+        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
         self.sample_codebook_temp = sample_codebook_temp
 
         assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
@@ -250,7 +252,12 @@ class EuclideanCodebook(nn.Module):
                 continue
 
             sampled = self.sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
-            self.embed.data[ind][mask] = rearrange(sampled, '1 ... -> ...')
+            sampled = rearrange(sampled, '1 ... -> ...')
+            
+            self.embed.data[ind][mask] = sampled
+
+            self.cluster_size.data[ind][mask] = self.reset_cluster_size
+            self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
 
     def expire_codes_(self, batch_samples):
         if self.threshold_ema_dead_code == 0:
@@ -323,6 +330,7 @@ class CosineSimCodebook(nn.Module):
         decay = 0.8,
         eps = 1e-5,
         threshold_ema_dead_code = 2,
+        reset_cluster_size = None,
         use_ddp = False,
         learnable_codebook = False,
         sample_codebook_temp = 0.
@@ -341,6 +349,7 @@ class CosineSimCodebook(nn.Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
+        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
         self.sample_codebook_temp = sample_codebook_temp
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
@@ -382,7 +391,10 @@ class CosineSimCodebook(nn.Module):
                 continue
 
             sampled = self.sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
-            self.embed.data[ind][mask] = rearrange(sampled, '1 ... -> ...')
+            sampled = rearrange(sampled, '1 ... -> ...')
+
+            self.embed.data[ind][mask] = sampled
+            self.cluster_size.data[ind][mask] = self.reset_cluster_size            
 
     def expire_codes_(self, batch_samples):
         if self.threshold_ema_dead_code == 0:
