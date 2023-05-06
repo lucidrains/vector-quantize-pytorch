@@ -81,6 +81,28 @@ quantized, indices, commit_loss = residual_vq(x)
 # (batch, seq, dim), (quantizer, batch, seq), (quantizer, batch)
 ```
 
+<a href="https://arxiv.org/abs/2305.02765">A recent paper</a> further proposes to do residual VQ on groups of the feature dimension, showing equivalent results to Encodec while using far fewer codebooks. You can use it by importing `GroupedResidualVQ`
+
+```python
+import torch
+from vector_quantize_pytorch import GroupedResidualVQ
+
+residual_vq = GroupedResidualVQ(
+    dim = 256,
+    num_quantizers = 8,      # specify number of quantizers
+    groups = 2,
+    codebook_size = 1024,    # codebook size
+)
+
+x = torch.randn(1, 1024, 256)
+
+quantized, indices, commit_loss = residual_vq(x)
+
+# (1, 1024, 256), (1, 1024, 8), (1, 8)
+# (batch, seq, dim), (groups, batch, seq, quantizer), (groups, batch, quantizer)
+
+```
+
 ## Initialization
 
 The SoundStream paper proposes that the codebook should be initialized by the kmeans centroids of the first batch. You can easily turn on this feature with one flag `kmeans_init = True`, for either `VectorQuantize` or `ResidualVQ` class
@@ -375,3 +397,12 @@ if __name__ == '__main__':
     year    = {2023}
 }
 ```
+
+```bibtex
+@inproceedings{Yang2023HiFiCodecGV,
+    title   = {HiFi-Codec: Group-residual Vector quantization for High Fidelity Audio Codec},
+    author  = {Dongchao Yang and Songxiang Liu and Rongjie Huang and Jinchuan Tian and Chao Weng and Yuexian Zou},
+    year    = {2023}
+}
+```
+

@@ -1,5 +1,6 @@
 from math import ceil
 from functools import partial
+from itertools import zip_longest
 from random import randrange
 
 import torch
@@ -13,6 +14,9 @@ from einops import rearrange, repeat, pack, unpack
 
 def exists(val):
     return val is not None
+
+def default(val, d):
+    return val if exists(val) else d
 
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
@@ -182,4 +186,78 @@ class ResidualVQ(nn.Module):
             # will return all codes in shape (quantizer, batch, sequence length, codebook dimension)
             ret = (*ret, all_codes)
 
+        return ret
+
+# grouped residual vq
+
+class GroupedResidualVQ(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        groups = 1,
+        accept_image_fmap = False,
+        **kwargs
+    ):
+        super().__init__()
+        self.dim = dim
+        self.groups = groups
+        assert (dim % groups) == 0
+        dim_per_group = dim // groups
+
+        self.accept_image_fmap = accept_image_fmap
+
+        self.rvqs = nn.ModuleList([])
+
+        for _ in range(groups):
+            self.rvqs.append(ResidualVQ(
+                dim = dim_per_group,
+                accept_image_fmap = accept_image_fmap,
+                **kwargs
+            ))
+
+    @property
+    def codebooks(self):
+        return torch.stack(tuple(rvq.codebooks for rvq in self.rvqs))
+
+    def forward(
+        self,
+        x,
+        indices = None,
+        return_all_codes = False
+    ):
+        shape = x.shape
+        split_dim = 1 if self.accept_image_fmap else -1
+        assert shape[split_dim] == self.dim
+
+        # split the feature dimension into groups
+
+        x = x.chunk(self.groups, dim = split_dim)
+
+        indices = default(indices, tuple())
+        return_ce_loss = len(indices) > 0
+        assert len(indices) == 0 or len(indices) == self.groups
+
+        forward_kwargs = dict(return_all_codes = return_all_codes)
+
+        # invoke residual vq on each group
+
+        out = tuple(rvq(chunk, indices = chunk_indices, **forward_kwargs) for rvq, chunk, chunk_indices in zip_longest(self.rvqs, x, indices))
+        out = tuple(zip(*out))
+
+        # if returning cross entropy loss to rvq codebooks
+
+        if return_ce_loss:
+            quantized, ce_losses = out
+            return torch.cat(quantized, dim = split_dim), sum(ce_losses)
+
+        # otherwise, get all the zipped outputs and combine them
+
+        quantized, all_indices, commit_losses, *maybe_all_codes = out
+
+        quantized = torch.cat(quantized, dim = split_dim)
+        all_indices = torch.stack(all_indices)
+        commit_losses = torch.stack(commit_losses)
+
+        ret = (quantized, all_indices, commit_losses, *maybe_all_codes)
         return ret
