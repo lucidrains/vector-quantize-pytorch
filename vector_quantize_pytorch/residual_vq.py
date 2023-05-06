@@ -220,6 +220,10 @@ class GroupedResidualVQ(nn.Module):
     def codebooks(self):
         return torch.stack(tuple(rvq.codebooks for rvq in self.rvqs))
 
+    def get_codes_from_indices(self, indices):
+        codes = tuple(rvq.get_codes_from_indices(chunk_indices) for rvq, chunk_indices in zip(self.rvqs, indices))
+        return torch.stack(codes)
+
     def forward(
         self,
         x,
