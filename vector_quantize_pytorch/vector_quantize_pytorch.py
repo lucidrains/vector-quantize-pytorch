@@ -43,8 +43,9 @@ def gumbel_sample(t, temperature = 1., dim = -1):
 
     return ((t / temperature) + gumbel_noise(t)).argmax(dim = dim)
 
-def laplace_smoothing(x, n_categories, eps = 1e-5):
-    return (x + eps) / (x.sum() + n_categories * eps)
+def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
+    denom = x.sum(dim = dim, keepdim = True)
+    return (x + eps) / (denom + n_categories * eps)
 
 def sample_vectors(samples, num):
     num_samples, device = samples.shape[0], samples.device
@@ -305,7 +306,7 @@ class EuclideanCodebook(nn.Module):
             self.all_reduce_fn(embed_sum.contiguous())
             self.embed_avg.data.lerp_(embed_sum, 1 - self.decay)
 
-            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum()
+            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             self.embed.data.copy_(embed_normalized)
@@ -450,7 +451,7 @@ class CosineSimCodebook(nn.Module):
             self.all_reduce_fn(embed_sum)
             self.embed_avg.data.lerp_(embed_sum, 1 - self.decay)
 
-            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum()
+            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             embed_normalized = l2norm(embed_normalized)
