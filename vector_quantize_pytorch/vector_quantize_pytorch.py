@@ -444,9 +444,6 @@ class CosineSimCodebook(nn.Module):
 
             self.cluster_size.data.lerp_(bins, 1 - self.decay)
 
-            zero_mask = (bins == 0)
-            bins = bins.masked_fill(zero_mask, 1.)
-
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum)
             self.embed_avg.data.lerp_(embed_sum, 1 - self.decay)
@@ -455,12 +452,6 @@ class CosineSimCodebook(nn.Module):
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             embed_normalized = l2norm(embed_normalized)
-
-            embed_normalized = torch.where(
-                rearrange(zero_mask, '... -> ... 1'),
-                embed,
-                embed_normalized
-            )
 
             self.embed.data.lerp_(embed_normalized, 1 - self.decay)
             self.embed.data.copy_(l2norm(self.embed))
