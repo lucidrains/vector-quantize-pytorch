@@ -358,6 +358,7 @@ class CosineSimCodebook(nn.Module):
 
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
         self.register_buffer('cluster_size', torch.zeros(num_codebooks, codebook_size))
+        self.register_buffer('embed_avg', embed.clone())
 
         self.learnable_codebook = learnable_codebook
         if learnable_codebook:
@@ -380,6 +381,7 @@ class CosineSimCodebook(nn.Module):
         )
 
         self.embed.data.copy_(embed)
+        self.embed_avg.data.copy_(embed.clone())
         self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
@@ -394,7 +396,8 @@ class CosineSimCodebook(nn.Module):
             sampled = rearrange(sampled, '1 ... -> ...')
 
             self.embed.data[ind][mask] = sampled
-            self.cluster_size.data[ind][mask] = self.reset_cluster_size            
+            self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
+            self.cluster_size.data[ind][mask] = self.reset_cluster_size
 
     def expire_codes_(self, batch_samples):
         if self.threshold_ema_dead_code == 0:
@@ -445,8 +448,11 @@ class CosineSimCodebook(nn.Module):
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum)
+            self.embed_avg.data.lerp_(embed_sum, 1 - self.decay)
 
-            embed_normalized = embed_sum / rearrange(bins, '... -> ... 1')
+            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum()
+
+            embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             embed_normalized = l2norm(embed_normalized)
 
             embed_normalized = torch.where(
@@ -456,6 +462,8 @@ class CosineSimCodebook(nn.Module):
             )
 
             self.embed.data.lerp_(embed_normalized, 1 - self.decay)
+            self.embed.data.copy_(l2norm(self.embed))
+
             self.expire_codes_(x)
 
         if needs_codebook_dim:
