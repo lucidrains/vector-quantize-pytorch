@@ -294,8 +294,6 @@ class EuclideanCodebook(nn.Module):
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = embed_ind.view(*shape[:-1])
 
-        quantize = batched_embedding(embed_ind, self.embed)
-
         if self.training:
             cluster_size = embed_onehot.sum(dim = 1)
 
@@ -311,6 +309,8 @@ class EuclideanCodebook(nn.Module):
             embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             self.embed.data.copy_(embed_normalized)
             self.expire_codes_(x)
+
+        quantize = batched_embedding(embed_ind, self.embed)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -436,8 +436,6 @@ class CosineSimCodebook(nn.Module):
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = embed_ind.view(*shape[:-1])
 
-        quantize = batched_embedding(embed_ind, self.embed)
-
         if self.training:
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
@@ -455,6 +453,8 @@ class CosineSimCodebook(nn.Module):
 
             self.embed.data.copy_(l2norm(embed_normalized))
             self.expire_codes_(x)
+
+        quantize = batched_embedding(embed_ind, self.embed)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
