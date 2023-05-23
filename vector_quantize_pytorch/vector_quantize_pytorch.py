@@ -312,6 +312,9 @@ class EuclideanCodebook(nn.Module):
 
         quantize = batched_embedding(embed_ind, self.embed)
 
+        if self.training:
+            quantize = x + (quantize - x).detach()
+
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
@@ -456,6 +459,10 @@ class CosineSimCodebook(nn.Module):
 
         quantize = batched_embedding(embed_ind, self.embed)
 
+        if self.training:
+            l2norm_x = l2norm(x)
+            quantize = l2norm_x + (quantize - l2norm_x).detach()
+
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
@@ -586,9 +593,6 @@ class VectorQuantize(nn.Module):
             x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
 
         quantize, embed_ind, distances = self._codebook(x)
-
-        if self.training:
-            quantize = x + (quantize - x).detach()
 
         if return_loss:
             if not is_multiheaded:
