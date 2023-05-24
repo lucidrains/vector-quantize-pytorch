@@ -71,7 +71,7 @@ def gumbel_sample(
     if reinmax:
         π0 = logits.softmax(dim = dim)
         π1 = (one_hot + (logits / temperature).softmax(dim = dim)) / 2
-        π1 = ((π1.log() - logits).detach() + logits).softmax(dim = 1)
+        π1 = ((log(π1) - logits).detach() + logits).softmax(dim = 1)
         π2 = 2 * π1 - 0.5 * π0
         one_hot = π2 - π2.detach() + one_hot
     else:
