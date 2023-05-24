@@ -281,7 +281,7 @@ class EuclideanCodebook(nn.Module):
         if needs_codebook_dim:
             x = rearrange(x, '... -> 1 ...')
 
-        shape, dtype = x.shape, x.dtype
+        dtype = x.dtype
         flatten, ps = pack_one(x, 'h * d')
 
         self.init_embed_(flatten)
@@ -292,7 +292,7 @@ class EuclideanCodebook(nn.Module):
 
         embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
-        embed_ind = embed_ind.view(*shape[:-1])
+        embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         if self.training:
             cluster_size = embed_onehot.sum(dim = 1)
@@ -424,7 +424,7 @@ class CosineSimCodebook(nn.Module):
         if needs_codebook_dim:
             x = rearrange(x, '... -> 1 ...')
 
-        shape, dtype = x.shape, x.dtype
+        dtype = x.dtype
 
         flatten, ps = pack_one(x, 'h * d')
         flatten = l2norm(flatten)
@@ -437,7 +437,7 @@ class CosineSimCodebook(nn.Module):
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
         embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
-        embed_ind = embed_ind.view(*shape[:-1])
+        embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         if self.training:
             bins = embed_onehot.sum(dim = 1)
