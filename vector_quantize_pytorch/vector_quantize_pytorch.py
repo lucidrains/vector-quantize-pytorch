@@ -530,7 +530,7 @@ class VectorQuantize(nn.Module):
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
         stochastic_sample_codes = False,
-        sample_codebook_temp = 0.,
+        sample_codebook_temp = 1.,
         straight_through = False,
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = False,
