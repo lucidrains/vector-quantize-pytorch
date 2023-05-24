@@ -45,7 +45,7 @@ class ResidualVQ(nn.Module):
         self.accept_image_fmap = accept_image_fmap
         self.layers = nn.ModuleList([VectorQuantize(accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
 
-        self.quantize_dropout = quantize_dropout
+        self.quantize_dropout = quantize_dropout and num_quantizers > 1
 
         assert quantize_dropout_cutoff_index >= 0
 
