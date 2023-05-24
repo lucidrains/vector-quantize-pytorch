@@ -70,8 +70,9 @@ residual_vq = ResidualVQ(
     dim = 256,
     num_quantizers = 8,
     codebook_size = 1024,
-    sample_codebook_temp = 0.1, # temperature for stochastically sampling codes, 0 would be equivalent to non-stochastic
-    shared_codebook = True      # whether to share the codebooks for all quantizers or not
+    stochastic_sample_codes = True,
+    sample_codebook_temp = 0.1,         # temperature for stochastically sampling codes, 0 would be equivalent to non-stochastic
+    shared_codebook = True              # whether to share the codebooks for all quantizers or not
 )
 
 x = torch.randn(1, 1024, 256)
@@ -406,3 +407,12 @@ if __name__ == '__main__':
 }
 ```
 
+```bibtex
+@article{Liu2023BridgingDA,
+    title   = {Bridging Discrete and Backpropagation: Straight-Through and Beyond},
+    author  = {Liyuan Liu and Chengyu Dong and Xiaodong Liu and Bin Yu and Jianfeng Gao},
+    journal = {ArXiv},
+    year    = {2023},
+    volume  = {abs/2304.08612}
+}
+```
