@@ -602,9 +602,6 @@ class VectorQuantize(nn.Module):
             ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
             x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
 
-            if exists(mask):
-                mask = repeat(mask, 'b n -> h b n', h = heads)
-
         # quantize
 
         quantize, embed_ind, distances = self._codebook(x)
@@ -657,6 +654,12 @@ class VectorQuantize(nn.Module):
         if self.training:
             if self.commitment_weight > 0:
                 if self.commitment_use_cross_entropy_loss:
+                    if exists(mask):
+                        if is_multiheaded:
+                            mask = repeat(mask, 'b n -> b n h', h = heads)
+
+                        embed_ind.masked_fill_(~mask, -1)
+
                     commit_loss = calculate_ce_loss(embed_ind)
                 else:
                     detached_quantize = quantize.detach()
@@ -664,6 +667,10 @@ class VectorQuantize(nn.Module):
                     if exists(mask):
                         # with variable lengthed sequences
                         commit_loss = F.mse_loss(detached_quantize, x, reduction = 'none')
+
+                        if is_multiheaded:
+                            mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
+
                         commit_loss = commit_loss[mask].mean()
                     else:
                         commit_loss = F.mse_loss(detached_quantize, x)
