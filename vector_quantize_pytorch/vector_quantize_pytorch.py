@@ -16,6 +16,9 @@ def default(val, d):
 def noop(*args, **kwargs):
     pass
 
+def identity(t):
+    return t
+
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
 
@@ -200,6 +203,8 @@ class EuclideanCodebook(nn.Module):
         sample_codebook_temp = 0
     ):
         super().__init__()
+        self.transform_input = identity
+
         self.decay = decay
         init_fn = uniform_init if not kmeans_init else torch.zeros
         embed = init_fn(num_codebooks, codebook_size, dim)
@@ -294,6 +299,8 @@ class EuclideanCodebook(nn.Module):
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
+        quantize = batched_embedding(embed_ind, self.embed)
+
         if self.training:
             cluster_size = embed_onehot.sum(dim = 1)
 
@@ -309,11 +316,6 @@ class EuclideanCodebook(nn.Module):
             embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             self.embed.data.copy_(embed_normalized)
             self.expire_codes_(x)
-
-        quantize = batched_embedding(embed_ind, self.embed)
-
-        if self.training:
-            quantize = x + (quantize - x).detach()
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -340,6 +342,8 @@ class CosineSimCodebook(nn.Module):
         sample_codebook_temp = 0.
     ):
         super().__init__()
+        self.transform_input = l2norm
+
         self.decay = decay
 
         if not kmeans_init:
@@ -427,17 +431,17 @@ class CosineSimCodebook(nn.Module):
         dtype = x.dtype
 
         flatten, ps = pack_one(x, 'h * d')
-        flatten = l2norm(flatten)
 
         self.init_embed_(flatten)
 
         embed = self.embed if not self.learnable_codebook else self.embed.detach()
-        embed = l2norm(embed)
 
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
         embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
+
+        quantize = batched_embedding(embed_ind, self.embed)
 
         if self.training:
             bins = embed_onehot.sum(dim = 1)
@@ -456,12 +460,6 @@ class CosineSimCodebook(nn.Module):
 
             self.embed.data.copy_(l2norm(embed_normalized))
             self.expire_codes_(x)
-
-        quantize = batched_embedding(embed_ind, self.embed)
-
-        if self.training:
-            l2norm_x = l2norm(x)
-            quantize = l2norm_x + (quantize - l2norm_x).detach()
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -489,6 +487,7 @@ class VectorQuantize(nn.Module):
         channel_last = True,
         accept_image_fmap = False,
         commitment_weight = 1.,
+        commitment_use_cross_entropy_loss = False,
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
@@ -509,6 +508,7 @@ class VectorQuantize(nn.Module):
 
         self.eps = eps
         self.commitment_weight = commitment_weight
+        self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
         self.orthogonal_reg_weight = orthogonal_reg_weight
@@ -588,13 +588,21 @@ class VectorQuantize(nn.Module):
 
         x = self.project_in(x)
 
+        x = self._codebook.transform_input(x)
+
         if is_multiheaded:
             ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
             x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
 
         quantize, embed_ind, distances = self._codebook(x)
 
-        if return_loss:
+        if self.training:
+            quantize = x + (quantize - x).detach()
+
+        # function for calculating cross entropy loss to distance matrix
+        # used for (1) naturalspeech2 training residual vq latents to be close to the correct codes and (2) cross-entropy based commitment loss
+
+        def calculate_ce_loss(codes):
             if not is_multiheaded:
                 dist_einops_eq = '1 b n l -> b l n'
             elif self.separate_codebook_per_head:
@@ -602,25 +610,36 @@ class VectorQuantize(nn.Module):
             else:
                 dist_einops_eq = '1 (b h) n l -> b l n h'
 
-            distances = rearrange(distances, dist_einops_eq, b = shape[0])
-            return quantize, F.cross_entropy(distances, indices, ignore_index = -1)
+            ce_loss = F.cross_entropy(
+                rearrange(distances, dist_einops_eq, b = shape[0]),
+                codes,
+                ignore_index = -1
+            )
+
+            return ce_loss
+
+        if return_loss:
+            return quantize, calculate_ce_loss(indices)
 
         loss = torch.tensor([0.], device = device, requires_grad = self.training)
 
         if self.training:
             if self.commitment_weight > 0:
-                detached_quantize = quantize.detach()
-
-                if exists(mask):
-                    # with variable lengthed sequences
-                    commit_loss = F.mse_loss(detached_quantize, x, reduction = 'none')
-
-                    if is_multiheaded:
-                        mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
-
-                    commit_loss = commit_loss[mask].mean()
+                if self.commitment_use_cross_entropy_loss:
+                    commit_loss = calculate_ce_loss(distances, embed_ind)
                 else:
-                    commit_loss = F.mse_loss(detached_quantize, x)
+                    detached_quantize = quantize.detach()
+
+                    if exists(mask):
+                        # with variable lengthed sequences
+                        commit_loss = F.mse_loss(detached_quantize, x, reduction = 'none')
+
+                        if is_multiheaded:
+                            mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
+
+                        commit_loss = commit_loss[mask].mean()
+                    else:
+                        commit_loss = F.mse_loss(detached_quantize, x)
 
                 loss = loss + commit_loss * self.commitment_weight
 
