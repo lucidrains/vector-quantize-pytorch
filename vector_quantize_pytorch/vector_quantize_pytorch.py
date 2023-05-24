@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
@@ -40,11 +42,41 @@ def gumbel_noise(t):
     noise = torch.zeros_like(t).uniform_(0, 1)
     return -log(-log(noise))
 
-def gumbel_sample(t, temperature = 1., dim = -1):
-    if temperature == 0:
-        return t.argmax(dim = dim)
+def gumbel_sample(
+    logits,
+    temperature = 1.,
+    stochastic = False,
+    straight_through = False,
+    reinmax = False,
+    dim = -1
+):
+    dtype, size = logits.dtype, logits.shape[dim]
 
-    return ((t / temperature) + gumbel_noise(t)).argmax(dim = dim)
+    if stochastic:
+        logits = logits + gumbel_noise(logits)
+
+    ind = logits.argmax(dim = dim)
+    one_hot = F.one_hot(ind, size).type(dtype)
+
+    assert not (reinmax and not straight_through), 'reinmax can only be turned on if using straight through gumbel softmax'
+
+    if not straight_through:
+        return ind, one_hot
+
+    # use reinmax for better second-order accuracy - https://arxiv.org/abs/2304.08612
+    # algorithm 2
+
+    if reinmax:
+        π0 = logits.softmax(dim = dim)
+        π1 = (one_hot + (logits / temperature).softmax(dim = dim)) / 2
+        π1 = ((π1.log() - logits).detach() + logits).softmax(dim = 1)
+        π2 = 2 * π1 - 0.5 * π0
+        one_hot = π2 - π2.detach() + one_hot
+    else:
+        π1 = (logits / temperature).softmax(dim = dim)
+        one_hot = one_hot + π1 - π1.detach()
+
+    return ind, one_hot
 
 def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
     denom = x.sum(dim = dim, keepdim = True)
@@ -200,7 +232,9 @@ class EuclideanCodebook(nn.Module):
         reset_cluster_size = None,
         use_ddp = False,
         learnable_codebook = False,
-        sample_codebook_temp = 0
+        sample_codebook_temp = 0,
+        straight_through = False,
+        gumbel_sample = gumbel_sample
     ):
         super().__init__()
         self.transform_input = identity
@@ -216,7 +250,9 @@ class EuclideanCodebook(nn.Module):
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
         self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
-        self.sample_codebook_temp = sample_codebook_temp
+
+        assert callable(gumbel_sample)
+        self.gumbel_sample = gumbel_sample
 
         assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
 
@@ -295,8 +331,7 @@ class EuclideanCodebook(nn.Module):
 
         dist = -torch.cdist(flatten, embed, p = 2)
 
-        embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
-        embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
+        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         quantize = batched_embedding(embed_ind, self.embed)
@@ -339,7 +374,7 @@ class CosineSimCodebook(nn.Module):
         reset_cluster_size = None,
         use_ddp = False,
         learnable_codebook = False,
-        sample_codebook_temp = 0.
+        gumbel_sample = gumbel_sample
     ):
         super().__init__()
         self.transform_input = l2norm
@@ -358,7 +393,9 @@ class CosineSimCodebook(nn.Module):
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
         self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
-        self.sample_codebook_temp = sample_codebook_temp
+
+        assert callable(gumbel_sample)
+        self.gumbel_sample = gumbel_sample
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
@@ -437,8 +474,7 @@ class CosineSimCodebook(nn.Module):
         embed = self.embed if not self.learnable_codebook else self.embed.detach()
 
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
-        embed_ind = gumbel_sample(dist, dim = -1, temperature = self.sample_codebook_temp)
-        embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
+        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         quantize = batched_embedding(embed_ind, self.embed)
@@ -491,8 +527,11 @@ class VectorQuantize(nn.Module):
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
+        stochastic_sample_codes = False,
         sample_codebook_temp = 0.,
-        sync_codebook = False
+        straight_through = False,
+        reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
+        sync_codebook = False,
     ):
         super().__init__()
         self.dim = dim
@@ -517,6 +556,14 @@ class VectorQuantize(nn.Module):
 
         codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
 
+        gumbel_sample_fn = partial(
+            gumbel_sample,
+            stochastic = stochastic_sample_codes,
+            temperature = sample_codebook_temp,
+            reinmax = reinmax,
+            straight_through = straight_through
+        )
+
         self._codebook = codebook_class(
             dim = codebook_dim,
             num_codebooks = heads if separate_codebook_per_head else 1,
@@ -529,7 +576,7 @@ class VectorQuantize(nn.Module):
             threshold_ema_dead_code = threshold_ema_dead_code,
             use_ddp = sync_codebook,
             learnable_codebook = has_codebook_orthogonal_loss,
-            sample_codebook_temp = sample_codebook_temp
+            gumbel_sample = gumbel_sample_fn
         )
 
         self.codebook_size = codebook_size
