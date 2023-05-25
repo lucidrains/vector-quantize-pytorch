@@ -48,11 +48,12 @@ def gumbel_sample(
     stochastic = False,
     straight_through = False,
     reinmax = False,
-    dim = -1
+    dim = -1,
+    training = True
 ):
     dtype, size = logits.dtype, logits.shape[dim]
 
-    if stochastic and temperature > 0:
+    if training and stochastic and temperature > 0:
         sampling_logits = (logits / temperature) + gumbel_noise(logits)
     else:
         sampling_logits = logits
@@ -62,7 +63,7 @@ def gumbel_sample(
 
     assert not (reinmax and not straight_through), 'reinmax can only be turned on if using straight through gumbel softmax'
 
-    if not straight_through or temperature <= 0.:
+    if not straight_through or temperature <= 0. or not training:
         return ind, one_hot, None
 
     # use reinmax for better second-order accuracy - https://arxiv.org/abs/2304.08612
@@ -343,7 +344,7 @@ class EuclideanCodebook(nn.Module):
 
         dist = -torch.cdist(flatten, embed, p = 2)
 
-        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp)
+        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
 
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
@@ -501,7 +502,7 @@ class CosineSimCodebook(nn.Module):
 
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
 
-        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp)
+        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         quantize = batched_embedding(embed_ind, self.embed)
