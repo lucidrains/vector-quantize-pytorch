@@ -61,7 +61,7 @@ def gumbel_sample(
     assert not (reinmax and not straight_through), 'reinmax can only be turned on if using straight through gumbel softmax'
 
     if not straight_through:
-        return ind, one_hot
+        return ind, one_hot, None
 
     # use reinmax for better second-order accuracy - https://arxiv.org/abs/2304.08612
     # algorithm 2
@@ -78,7 +78,9 @@ def gumbel_sample(
         π1 = (logits / temperature).softmax(dim = dim)
         one_hot = one_hot + π1 - π1.detach()
 
-    return ind, one_hot
+    st_mult = one_hot.gather(-1, rearrange(ind, '... -> ... 1')) # multiplier for straight-through
+
+    return ind, one_hot, st_mult
 
 def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
     denom = x.sum(dim = dim, keepdim = True)
@@ -333,10 +335,15 @@ class EuclideanCodebook(nn.Module):
 
         dist = -torch.cdist(flatten, embed, p = 2)
 
-        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1)
+        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1)
+
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         quantize = batched_embedding(embed_ind, self.embed)
+
+        if exists(straight_through_mult):
+            mult = unpack_one(straight_through_mult, ps, 'h * d')
+            quantize = quantize * mult
 
         if self.training:
             cluster_size = embed_onehot.sum(dim = 1)
@@ -476,10 +483,14 @@ class CosineSimCodebook(nn.Module):
         embed = self.embed if not self.learnable_codebook else self.embed.detach()
 
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
-        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1)
+        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
         quantize = batched_embedding(embed_ind, self.embed)
+
+        if exists(straight_through_mult):
+            mult = unpack_one(straight_through_mult, ps, 'h * d')
+            quantize = quantize * mult
 
         if self.training:
             bins = embed_onehot.sum(dim = 1)
