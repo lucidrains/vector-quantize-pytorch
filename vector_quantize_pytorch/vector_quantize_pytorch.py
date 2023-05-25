@@ -53,9 +53,11 @@ def gumbel_sample(
     dtype, size = logits.dtype, logits.shape[dim]
 
     if stochastic and temperature > 0:
-        logits = logits + gumbel_noise(logits)
+        sampling_logits = (logits / temperature) + gumbel_noise(logits)
+    else:
+        sampling_logits = logits
 
-    ind = logits.argmax(dim = dim)
+    ind = sampling_logits.argmax(dim = dim)
     one_hot = F.one_hot(ind, size).type(dtype)
 
     assert not (reinmax and not straight_through), 'reinmax can only be turned on if using straight through gumbel softmax'
@@ -235,12 +237,15 @@ class EuclideanCodebook(nn.Module):
         use_ddp = False,
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
-        sample_codebook_temp = 1.
+        sample_codebook_temp = 1.,
+        ema_update = True
     ):
         super().__init__()
         self.transform_input = identity
 
         self.decay = decay
+        self.ema_update = ema_update
+
         init_fn = uniform_init if not kmeans_init else torch.zeros
         embed = init_fn(num_codebooks, codebook_size, dim)
 
@@ -348,7 +353,7 @@ class EuclideanCodebook(nn.Module):
             mult = unpack_one(straight_through_mult, ps, 'h * d')
             quantize = quantize * mult
 
-        if self.training:
+        if self.training and self.ema_update:
             cluster_size = embed_onehot.sum(dim = 1)
 
             self.all_reduce_fn(cluster_size)
@@ -387,11 +392,13 @@ class CosineSimCodebook(nn.Module):
         use_ddp = False,
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
-        sample_codebook_temp = 1.
+        sample_codebook_temp = 1.,
+        ema_update = True
     ):
         super().__init__()
         self.transform_input = l2norm
 
+        self.ema_update = ema_update
         self.decay = decay
 
         if not kmeans_init:
@@ -503,7 +510,7 @@ class CosineSimCodebook(nn.Module):
             mult = unpack_one(straight_through_mult, ps, 'h * d')
             quantize = quantize * mult
 
-        if self.training:
+        if self.training and self.ema_update:
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
 
@@ -556,6 +563,9 @@ class VectorQuantize(nn.Module):
         straight_through = False,
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = False,
+        ema_update = True,
+        learnable_codebook = False
+
     ):
         super().__init__()
         self.dim = dim
@@ -598,9 +608,10 @@ class VectorQuantize(nn.Module):
             eps = eps,
             threshold_ema_dead_code = threshold_ema_dead_code,
             use_ddp = sync_codebook,
-            learnable_codebook = has_codebook_orthogonal_loss,
+            learnable_codebook = has_codebook_orthogonal_loss or learnable_codebook,
             sample_codebook_temp = sample_codebook_temp,
-            gumbel_sample = gumbel_sample_fn
+            gumbel_sample = gumbel_sample_fn,
+            ema_update = ema_update
         )
 
         self.codebook_size = codebook_size
