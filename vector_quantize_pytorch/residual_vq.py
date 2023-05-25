@@ -109,7 +109,8 @@ class ResidualVQ(nn.Module):
         self,
         x,
         indices = None,
-        return_all_codes = False
+        return_all_codes = False,
+        sample_codebook_temp = None
     ):
         num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
 
@@ -153,7 +154,7 @@ class ResidualVQ(nn.Module):
             if return_loss:
                 layer_indices = indices[..., quantizer_index]
 
-            quantized, *rest = layer(residual, indices = layer_indices)
+            quantized, *rest = layer(residual, indices = layer_indices, sample_codebook_temp = sample_codebook_temp)
 
             residual = residual - quantized.detach()
             quantized_out = quantized_out + quantized
@@ -228,7 +229,8 @@ class GroupedResidualVQ(nn.Module):
         self,
         x,
         indices = None,
-        return_all_codes = False
+        return_all_codes = False,
+        sample_codebook_temp = None
     ):
         shape = x.shape
         split_dim = 1 if self.accept_image_fmap else -1
@@ -242,7 +244,10 @@ class GroupedResidualVQ(nn.Module):
         return_ce_loss = len(indices) > 0
         assert len(indices) == 0 or len(indices) == self.groups
 
-        forward_kwargs = dict(return_all_codes = return_all_codes)
+        forward_kwargs = dict(
+            return_all_codes = return_all_codes,
+            sample_codebook_temp = sample_codebook_temp
+        )
 
         # invoke residual vq on each group
 
