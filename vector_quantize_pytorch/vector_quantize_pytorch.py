@@ -676,15 +676,15 @@ class VectorQuantize(nn.Module):
 
         x = self.project_in(x)
 
-        # l2norm for cosine sim, otherwise identity
-
-        x = self._codebook.transform_input(x)
-
         # handle multi-headed separate codebooks
 
         if is_multiheaded:
             ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
             x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
+
+        # l2norm for cosine sim, otherwise identity
+
+        x = self._codebook.transform_input(x)
 
         # quantize
 
