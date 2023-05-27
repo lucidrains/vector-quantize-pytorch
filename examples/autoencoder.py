@@ -1,5 +1,5 @@
 # FashionMnist VQ experiment with various settings.
-# From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.
+# From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
 
 from tqdm.auto import trange
 
