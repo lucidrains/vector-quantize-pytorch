@@ -182,31 +182,6 @@ x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = vq(x)
 ```
 
-### Orthogonal regularization loss
-
-VQ-VAE / VQ-GAN is quickly gaining popularity. A <a href="https://arxiv.org/abs/2112.00384">recent paper</a> proposes that when using vector quantization on images, enforcing the codebook to be orthogonal leads to translation equivariance of the discretized codes, leading to large improvements in downstream text to image generation tasks.
-
-You can use this feature by simply setting the `orthogonal_reg_weight` to be greater than `0`, in which case the orthogonal regularization will be added to the auxiliary loss outputted by the module.
-
-```python
-import torch
-from vector_quantize_pytorch import VectorQuantize
-
-vq = VectorQuantize(
-    dim = 256,
-    codebook_size = 256,
-    accept_image_fmap = True,                   # set this true to be able to pass in an image feature map
-    orthogonal_reg_weight = 10,                 # in paper, they recommended a value of 10
-    orthogonal_reg_max_codes = 128,             # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
-    orthogonal_reg_active_codes_only = False    # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
-)
-
-img_fmap = torch.randn(1, 256, 32, 32)
-quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
-
-# loss now contains the orthogonal regularization loss with the weight as assigned
-```
-
 ### Multi-headed VQ
 
 There has been a number of papers that proposes variants of discrete latent representations with a multi-headed approach (multiple codes per feature). I have decided to offer one variant where the same codebook is used to vector quantize across the input dimension `head` times.
@@ -230,7 +205,6 @@ img_fmap = torch.randn(1, 256, 32, 32)
 quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32, 8), (1,)
 
 # indices shape - (batch, height, width, heads)
-# loss now contains the orthogonal regularization loss with the weight as assigned
 ```
 ### Random Projection Quantizer
 
@@ -341,17 +315,6 @@ if __name__ == '__main__':
     year    = {2022},
     url     = {https://openreview.net/forum?id=pfNyExj7z2},
     note    = {under review}
-}
-```
-
-```bibtex
-@misc{shin2021translationequivariant,
-    title   = {Translation-equivariant Image Quantizer for Bi-directional Image-Text Generation}, 
-    author  = {Woncheol Shin and Gyubok Lee and Jiyoung Lee and Joonseok Lee and Edward Choi},
-    year    = {2021},
-    eprint  = {2112.00384},
-    archivePrefix = {arXiv},
-    primaryClass = {cs.CV}
 }
 ```
 
