@@ -307,7 +307,7 @@ if __name__ == '__main__':
 
 - [x] allow for multi-headed codebooks
 - [x] support masking
-
+- [ ] make sure affine param works in a distributed setting (batch mean and variance must be synced with dist reduce or whatever)
 
 ## Citations
 
@@ -414,5 +414,15 @@ if __name__ == '__main__':
     journal = {ArXiv},
     year    = {2023},
     volume  = {abs/2304.08612}
+}
+```
+
+```bibtex
+@inproceedings{huh2023improvedvqste,
+    title   = {Straightening Out the Straight-Through Estimator: Overcoming Optimization Challenges in Vector Quantized Networks},
+    author  = {Huh, Minyoung and Cheung, Brian and Agrawal, Pulkit and Isola, Phillip},
+    booktitle = {International Conference on Machine Learning},
+    year    = {2023},
+    organization = {PMLR}
 }
 ```

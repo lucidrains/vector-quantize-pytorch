@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.distributed as distributed
 from torch.cuda.amp import autocast
 
-from einops import rearrange, repeat, pack, unpack
+from einops import rearrange, repeat, reduce, pack, unpack
 from contextlib import contextmanager
 
 def exists(val):
@@ -239,7 +239,10 @@ class EuclideanCodebook(nn.Module):
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
-        ema_update = True
+        ema_update = True,
+        affine_param = False,
+        affine_param_batch_decay = 0.99,
+        affine_param_codebook_decay = 0.9
     ):
         super().__init__()
         self.transform_input = identity
@@ -278,6 +281,22 @@ class EuclideanCodebook(nn.Module):
         else:
             self.register_buffer('embed', embed)
 
+        # affine related params
+
+        self.affine_param = affine_param
+
+        if not affine_param:
+            return
+
+        self.affine_param_batch_decay = affine_param_batch_decay
+        self.affine_param_codebook_decay = affine_param_codebook_decay
+
+        self.register_buffer('batch_mean', None)
+        self.register_buffer('batch_variance', None)
+
+        self.register_buffer('codebook_mean', None)
+        self.register_buffer('codebook_variance', None)
+
     @torch.jit.ignore
     def init_embed_(self, data):
         if self.initted:
@@ -295,6 +314,29 @@ class EuclideanCodebook(nn.Module):
         self.embed_avg.data.copy_(embed.clone())
         self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
+
+    @torch.jit.ignore
+    def update_with_decay(self, buffer_name, new_value, decay):
+        old_value = getattr(self, buffer_name)
+
+        if not exists(old_value):
+            self.register_buffer(buffer_name, new_value)
+            return
+
+        value = old_value * decay + new_value * (1 - decay)
+        self.register_buffer(buffer_name, value)
+
+    @torch.jit.ignore
+    def update_affine(self, data, embed):
+        assert self.affine_param
+
+        var_fn = partial(torch.var, unbiased = False)
+
+        self.update_with_decay('batch_mean', reduce(data, '... d -> d', 'mean'), self.affine_param_batch_decay)
+        self.update_with_decay('batch_variance', reduce(data, '... d -> d', var_fn), self.affine_param_batch_decay)
+
+        self.update_with_decay('codebook_mean', reduce(embed, '... d -> d', 'mean'), self.affine_param_codebook_decay)
+        self.update_with_decay('codebook_variance', reduce(embed, '... d -> d', var_fn), self.affine_param_codebook_decay)
 
     def replace(self, batch_samples, batch_mask):
         for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
@@ -340,7 +382,15 @@ class EuclideanCodebook(nn.Module):
 
         self.init_embed_(flatten)
 
+        if self.affine_param:
+            self.update_affine(flatten, self.embed)
+
         embed = self.embed if not self.learnable_codebook else self.embed.detach()
+
+        if self.affine_param:
+            codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
+            batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
+            embed = (embed - self.codebook_mean) * (batch_std / codebook_std) + self.batch_mean
 
         dist = -torch.cdist(flatten, embed, p = 2)
 
@@ -355,6 +405,10 @@ class EuclideanCodebook(nn.Module):
             quantize = quantize * mult
 
         if self.training and self.ema_update:
+
+            if self.affine_param:
+                flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
+
             cluster_size = embed_onehot.sum(dim = 1)
 
             self.all_reduce_fn(cluster_size)
@@ -565,8 +619,10 @@ class VectorQuantize(nn.Module):
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = False,
         ema_update = True,
-        learnable_codebook = False
-
+        learnable_codebook = False,
+        affine_param = False,
+        affine_param_batch_decay = 0.99,
+        affine_param_codebook_decay = 0.9
     ):
         super().__init__()
         self.dim = dim
@@ -598,7 +654,7 @@ class VectorQuantize(nn.Module):
             straight_through = straight_through
         )
 
-        self._codebook = codebook_class(
+        codebook_kwargs = dict(
             dim = codebook_dim,
             num_codebooks = heads if separate_codebook_per_head else 1,
             codebook_size = codebook_size,
@@ -614,6 +670,17 @@ class VectorQuantize(nn.Module):
             gumbel_sample = gumbel_sample_fn,
             ema_update = ema_update
         )
+
+        if affine_param:
+            assert not use_cosine_sim
+            codebook_kwargs = dict(
+                **codebook_kwargs,
+                affine_param = True,
+                affine_param_batch_decay = affine_param_batch_decay,
+                affine_param_codebook_decay = affine_param_codebook_decay
+            )
+
+        self._codebook = codebook_class(**codebook_kwargs)
 
         self.codebook_size = codebook_size
 
