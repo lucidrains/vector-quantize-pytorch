@@ -659,7 +659,11 @@ class VectorQuantize(nn.Module):
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
+        assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
+
         assert 0 <= sync_update_v <= 1.
+        assert not (sync_update_v > 0. and not learnable_codebook), 'learnable codebook must be turned on'
+
         self.sync_update_v = sync_update_v
 
         codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
