@@ -640,7 +640,8 @@ class VectorQuantize(nn.Module):
         learnable_codebook = False,
         affine_param = False,
         affine_param_batch_decay = 0.99,
-        affine_param_codebook_decay = 0.9
+        affine_param_codebook_decay = 0.9,
+        sync_update_v = 0. # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
         self.dim = dim
@@ -657,6 +658,9 @@ class VectorQuantize(nn.Module):
         self.eps = eps
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
+
+        assert 0 <= sync_update_v <= 1.
+        self.sync_update_v = sync_update_v
 
         codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
 
@@ -773,6 +777,10 @@ class VectorQuantize(nn.Module):
 
         if self.training:
             quantize = x + (quantize - x).detach()
+
+            if self.sync_update_v > 0.:
+                # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
+                quantize = quantize + self.sync_update_v * (quantize - quantize.detach())
 
         # function for calculating cross entropy loss to distance matrix
         # used for (1) naturalspeech2 training residual vq latents to be close to the correct codes and (2) cross-entropy based commitment loss
