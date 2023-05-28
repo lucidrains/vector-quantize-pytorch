@@ -323,11 +323,11 @@ class EuclideanCodebook(nn.Module):
 
         var_fn = partial(torch.var, unbiased = False)
 
-        self.update_with_decay('batch_mean', reduce(data, '... d -> d', 'mean'), self.affine_param_batch_decay)
-        self.update_with_decay('batch_variance', reduce(data, '... d -> d', var_fn), self.affine_param_batch_decay)
+        self.update_with_decay('batch_mean', reduce(data, 'h ... d -> h 1 d', 'mean'), self.affine_param_batch_decay)
+        self.update_with_decay('batch_variance', reduce(data, 'h ... d -> h 1 d', var_fn), self.affine_param_batch_decay)
 
-        self.update_with_decay('codebook_mean', reduce(embed, '... d -> d', 'mean'), self.affine_param_codebook_decay)
-        self.update_with_decay('codebook_variance', reduce(embed, '... d -> d', var_fn), self.affine_param_codebook_decay)
+        self.update_with_decay('codebook_mean', reduce(embed, 'h ... d -> h 1 d', 'mean'), self.affine_param_codebook_decay)
+        self.update_with_decay('codebook_variance', reduce(embed, 'h ... d -> h 1 d', var_fn), self.affine_param_codebook_decay)
 
     def replace(self, batch_samples, batch_mask):
         for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
