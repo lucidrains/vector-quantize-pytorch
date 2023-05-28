@@ -281,7 +281,7 @@ if __name__ == '__main__':
 
 - [x] allow for multi-headed codebooks
 - [x] support masking
-- [ ] make sure affine param works in a distributed setting (batch mean and variance must be synced with dist reduce or whatever)
+- [x] make sure affine param works with (`sync_affine_param` set to `True`)
 
 ## Citations
 

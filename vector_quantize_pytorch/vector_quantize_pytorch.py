@@ -232,6 +232,7 @@ class EuclideanCodebook(nn.Module):
         sample_codebook_temp = 1.,
         ema_update = True,
         affine_param = False,
+        sync_affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9
     ):
@@ -275,6 +276,7 @@ class EuclideanCodebook(nn.Module):
         # affine related params
 
         self.affine_param = affine_param
+        self.sync_affine_param = sync_affine_param
 
         if not affine_param:
             return
@@ -323,11 +325,38 @@ class EuclideanCodebook(nn.Module):
 
         var_fn = partial(torch.var, unbiased = False)
 
-        self.update_with_decay('batch_mean', reduce(data, 'h ... d -> h 1 d', 'mean'), self.affine_param_batch_decay)
-        self.update_with_decay('batch_variance', reduce(data, 'h ... d -> h 1 d', var_fn), self.affine_param_batch_decay)
+        data, embed = map(lambda t: rearrange(t, 'h ... d -> h (...) d'), (data, embed))
 
-        self.update_with_decay('codebook_mean', reduce(embed, 'h ... d -> h 1 d', 'mean'), self.affine_param_codebook_decay)
-        self.update_with_decay('codebook_variance', reduce(embed, 'h ... d -> h 1 d', var_fn), self.affine_param_codebook_decay)
+        self.update_with_decay('codebook_mean', reduce(embed, 'h n d -> h 1 d', 'mean'), self.affine_param_codebook_decay)
+        self.update_with_decay('codebook_variance', reduce(embed, 'h n d -> h 1 d', var_fn), self.affine_param_codebook_decay)
+
+        if not self.sync_affine_param:
+            self.update_with_decay('batch_mean', reduce(data, 'h n d -> h 1 d', 'mean'), self.affine_param_batch_decay)
+            self.update_with_decay('batch_variance', reduce(data, 'h n d -> h 1 d', var_fn), self.affine_param_batch_decay)
+            return
+
+        num_vectors, device, dtype = data.shape[-2], data.device, data.dtype
+
+        # number of vectors, for denominator
+
+        num_vectors = torch.tensor([num_vectors], device = device, dtype = dtype)
+        distributed.all_reduce(num_vectors)
+
+        # calculate distributed mean
+
+        batch_sum = reduce(data, 'h n d -> h 1 d', 'sum')
+        distributed.all_reduce(batch_sum)
+        batch_mean = batch_sum / num_vectors
+
+        self.update_with_decay('batch_mean', batch_mean, self.affine_param_batch_decay)
+
+        # calculate distributed variance
+
+        variance_numer = reduce((data - batch_mean) ** 2, 'h n d -> h 1 d', 'sum')
+        distributed.all_reduce(variance_numer)
+        batch_variance = variance_numer / num_vectors
+
+        self.update_with_decay('batch_variance', batch_variance, self.affine_param_batch_decay)
 
     def replace(self, batch_samples, batch_mask):
         for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
@@ -606,6 +635,7 @@ class VectorQuantize(nn.Module):
         straight_through = False,
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = False,
+        sync_affine_param = False,
         ema_update = True,
         learnable_codebook = False,
         affine_param = False,
@@ -659,8 +689,9 @@ class VectorQuantize(nn.Module):
             codebook_kwargs = dict(
                 **codebook_kwargs,
                 affine_param = True,
+                sync_affine_param = sync_affine_param,
                 affine_param_batch_decay = affine_param_batch_decay,
-                affine_param_codebook_decay = affine_param_codebook_decay
+                affine_param_codebook_decay = affine_param_codebook_decay,
             )
 
         self._codebook = codebook_class(**codebook_kwargs)
