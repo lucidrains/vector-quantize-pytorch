@@ -592,7 +592,7 @@ class CosineSimCodebook(nn.Module):
             self.cluster_size.data.lerp_(bins, 1 - self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
-            self.all_reduce_fn(embed_sum)
+            self.all_reduce_fn(embed_sum.contiguous())
             self.embed_avg.data.lerp_(embed_sum, 1 - self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
