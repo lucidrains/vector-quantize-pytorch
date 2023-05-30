@@ -405,7 +405,7 @@ class EuclideanCodebook(nn.Module):
         if self.affine_param:
             self.update_affine(flatten, self.embed)
 
-        embed = self.embed if not self.learnable_codebook else self.embed.detach()
+        embed = self.embed if self.learnable_codebook else self.embed.detach()
 
         if self.affine_param:
             codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
@@ -572,7 +572,7 @@ class CosineSimCodebook(nn.Module):
 
         self.init_embed_(flatten)
 
-        embed = self.embed if not self.learnable_codebook else self.embed.detach()
+        embed = self.embed if self.learnable_codebook else self.embed.detach()
 
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
 
