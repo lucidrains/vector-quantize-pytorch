@@ -650,6 +650,7 @@ class VectorQuantize(nn.Module):
         sync_affine_param = False,
         ema_update = True,
         learnable_codebook = False,
+        in_place_codebook_optimizer = None, # Optimizer used to update the codebook embedding if using learnable_codebook
         affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9,
@@ -678,6 +679,8 @@ class VectorQuantize(nn.Module):
         self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
 
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
+        assert not learnable_codebook or (learnable_codebook and in_place_codebook_optimizer is not None), \
+                'Must specify an optimizer for the codebook embedding if learnable_codebook is set to True'
 
         assert 0 <= sync_update_v <= 1.
         assert not (sync_update_v > 0. and not learnable_codebook), 'learnable codebook must be turned on'
@@ -721,6 +724,9 @@ class VectorQuantize(nn.Module):
             )
 
         self._codebook = codebook_class(**codebook_kwargs)
+
+        if in_place_codebook_optimizer is not None:
+            self.in_place_codebook_optimizer = in_place_codebook_optimizer(self._codebook.parameters())
 
         self.codebook_size = codebook_size
 
@@ -769,6 +775,7 @@ class VectorQuantize(nn.Module):
         shape, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
+        should_inplace_optimize = hasattr(self, 'in_place_codebook_optimizer')
 
         # rearrange inputs
 
@@ -796,6 +803,17 @@ class VectorQuantize(nn.Module):
         # quantize
 
         quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
+
+
+        if should_inplace_optimize and self.training:
+            # One step in-place update
+            ((quantize - x)**2).mean().backward()
+            self.in_place_codebook_optimizer.step()
+            self.in_place_codebook_optimizer.zero_grad()
+
+            # Quantize again
+            quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
+
 
         if self.training:
             quantize = x + (quantize - x).detach()
