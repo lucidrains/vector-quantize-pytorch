@@ -798,11 +798,13 @@ class VectorQuantize(nn.Module):
         quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
 
         if self.training:
-            quantize = x + (quantize - x).detach()
+            maybe_sync_update = 0.
 
             if self.sync_update_v > 0.:
                 # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
-                quantize = quantize + self.sync_update_v * (quantize - quantize.detach())
+                maybe_sync_update = self.sync_update_v * (quantize - quantize.detach())
+                print(maybe_sync_update)
+            quantize = x + (quantize - x).detach() + maybe_sync_update
 
         # function for calculating cross entropy loss to distance matrix
         # used for (1) naturalspeech2 training residual vq latents to be close to the correct codes and (2) cross-entropy based commitment loss
