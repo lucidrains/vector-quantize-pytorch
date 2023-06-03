@@ -807,7 +807,7 @@ class VectorQuantize(nn.Module):
 
         if should_inplace_optimize and self.training:
             # One step in-place update
-            ((quantize - x)**2).mean().backward()
+            ((quantize - x.detach())**2).mean().backward()
             self.in_place_codebook_optimizer.step()
             self.in_place_codebook_optimizer.zero_grad()
 
