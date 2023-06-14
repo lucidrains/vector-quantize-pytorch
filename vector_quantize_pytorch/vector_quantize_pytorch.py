@@ -807,6 +807,8 @@ class VectorQuantize(nn.Module):
         quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
 
         if self.training:
+            orig_quantize = quantize
+
             quantize = x + (quantize - x).detach()
 
             if self.sync_update_v > 0.:
@@ -866,18 +868,16 @@ class VectorQuantize(nn.Module):
 
                     commit_loss = calculate_ce_loss(embed_ind)
                 else:
-                    detached_quantize = quantize.detach()
-
                     if exists(mask):
                         # with variable lengthed sequences
-                        commit_loss = F.mse_loss(detached_quantize, x, reduction = 'none')
+                        commit_loss = F.mse_loss(orig_quantize, x, reduction = 'none')
 
                         if is_multiheaded:
                             mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
 
                         commit_loss = commit_loss[mask].mean()
                     else:
-                        commit_loss = F.mse_loss(detached_quantize, x)
+                        commit_loss = F.mse_loss(orig_quantize, x)
 
                 loss = loss + commit_loss * self.commitment_weight
 
