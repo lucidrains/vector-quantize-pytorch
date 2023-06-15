@@ -27,14 +27,13 @@ def l2norm(t):
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
-def lerp(old, new, decay):
-    is_mps = getattr(old, 'is_mps', False)
+def ema_inplace(old, new, decay):
+    is_mps = str(old.device) == 'mps'
 
     if not is_mps:
         old.lerp_(new, 1 - decay)
-        return old
-
-    return old * decay + new * (1 - decay)
+    else:
+        old.mul_(decay).add_(new * (1 - decay))
 
 def pack_one(t, pattern):
     return pack([t], pattern)
@@ -450,11 +449,11 @@ class EuclideanCodebook(nn.Module):
             cluster_size = embed_onehot.sum(dim = 1)
 
             self.all_reduce_fn(cluster_size)
-            self.cluster_size = lerp(self.cluster_size, cluster_size, self.decay)
+            ema_inplace(self.cluster_size, cluster_size, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum.contiguous())
-            self.embed_avg = lerp(self.embed_avg, embed_sum, self.decay)
+            ema_inplace(self.embed_avg, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
@@ -607,11 +606,11 @@ class CosineSimCodebook(nn.Module):
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
 
-            self.cluster_size = lerp(self.cluster_size, bins, self.decay)
+            ema_inplace(self.cluster_size, bins, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum.contiguous())
-            self.embed_avg = lerp(self.embed_avg, embed_sum, self.decay)
+            ema_inplace(self.embed_avg, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
