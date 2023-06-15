@@ -679,6 +679,8 @@ class VectorQuantize(nn.Module):
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
+        self.learnable_codebook = learnable_codebook
+
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
         self.orthogonal_reg_weight = orthogonal_reg_weight
@@ -806,7 +808,14 @@ class VectorQuantize(nn.Module):
         quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
 
         if self.training:
-            orig_quantize = quantize
+            # determine code to use for commitment loss
+
+            if not self.learnable_codebook:
+                commit_quantize = quantize.detach()
+            else:
+                commit_quantize = quantize
+
+            # straight through
 
             quantize = x + (quantize - x).detach()
 
@@ -869,14 +878,14 @@ class VectorQuantize(nn.Module):
                 else:
                     if exists(mask):
                         # with variable lengthed sequences
-                        commit_loss = F.mse_loss(orig_quantize, x, reduction = 'none')
+                        commit_loss = F.mse_loss(commit_quantize, x, reduction = 'none')
 
                         if is_multiheaded:
                             mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
 
                         commit_loss = commit_loss[mask].mean()
                     else:
-                        commit_loss = F.mse_loss(orig_quantize, x)
+                        commit_loss = F.mse_loss(commit_quantize, x)
 
                 loss = loss + commit_loss * self.commitment_weight
 
