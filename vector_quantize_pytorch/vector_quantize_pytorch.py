@@ -27,14 +27,13 @@ def l2norm(t):
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
-def lerp(old, new, decay):
-    is_mps = getattr(old, 'is_mps', False)
+def ema_inplace(old, new, decay):
+    is_mps = str(old.device) == 'mps'
 
     if not is_mps:
         old.lerp_(new, 1 - decay)
-        return old
-
-    return old * decay + new * (1 - decay)
+    else:
+        old.mul_(decay).add_(new * (1 - decay))
 
 def pack_one(t, pattern):
     return pack([t], pattern)
@@ -450,11 +449,11 @@ class EuclideanCodebook(nn.Module):
             cluster_size = embed_onehot.sum(dim = 1)
 
             self.all_reduce_fn(cluster_size)
-            self.cluster_size = lerp(self.cluster_size, cluster_size, self.decay)
+            ema_inplace(self.cluster_size.data, cluster_size, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum.contiguous())
-            self.embed_avg = lerp(self.embed_avg, embed_sum, self.decay)
+            ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
@@ -607,11 +606,11 @@ class CosineSimCodebook(nn.Module):
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
 
-            self.cluster_size = lerp(self.cluster_size, bins, self.decay)
+            ema_inplace(self.cluster_size.data, bins, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             self.all_reduce_fn(embed_sum.contiguous())
-            self.embed_avg = lerp(self.embed_avg, embed_sum, self.decay)
+            ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
@@ -679,6 +678,8 @@ class VectorQuantize(nn.Module):
         self.eps = eps
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
+
+        self.learnable_codebook = learnable_codebook
 
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
@@ -807,7 +808,14 @@ class VectorQuantize(nn.Module):
         quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
 
         if self.training:
-            orig_quantize = quantize
+            # determine code to use for commitment loss
+
+            if not self.learnable_codebook:
+                commit_quantize = quantize.detach()
+            else:
+                commit_quantize = quantize
+
+            # straight through
 
             quantize = x + (quantize - x).detach()
 
@@ -870,14 +878,14 @@ class VectorQuantize(nn.Module):
                 else:
                     if exists(mask):
                         # with variable lengthed sequences
-                        commit_loss = F.mse_loss(orig_quantize, x, reduction = 'none')
+                        commit_loss = F.mse_loss(commit_quantize, x, reduction = 'none')
 
                         if is_multiheaded:
                             mask = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
 
                         commit_loss = commit_loss[mask].mean()
                     else:
-                        commit_loss = F.mse_loss(orig_quantize, x)
+                        commit_loss = F.mse_loss(commit_quantize, x)
 
                 loss = loss + commit_loss * self.commitment_weight
 
