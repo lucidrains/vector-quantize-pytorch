@@ -28,7 +28,7 @@ def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
 def ema_inplace(old, new, decay):
-    is_mps = str(old.device) == 'mps'
+    is_mps = str(old.device).startswith('mps:')
 
     if not is_mps:
         old.lerp_(new, 1 - decay)
