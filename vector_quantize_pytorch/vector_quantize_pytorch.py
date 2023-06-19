@@ -4,10 +4,12 @@ import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 import torch.distributed as distributed
+from torch.optim import Optimizer
 from torch.cuda.amp import autocast
 
 from einops import rearrange, repeat, reduce, pack, unpack
-from contextlib import contextmanager
+
+from typing import Callable
 
 def exists(val):
     return val is not None
@@ -658,7 +660,7 @@ class VectorQuantize(nn.Module):
         sync_affine_param = False,
         ema_update = True,
         learnable_codebook = False,
-        in_place_codebook_optimizer = None, # Optimizer used to update the codebook embedding if using learnable_codebook
+        in_place_codebook_optimizer: Callable[..., Optimizer] = None, # Optimizer used to update the codebook embedding if using learnable_codebook
         affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9,
@@ -735,8 +737,7 @@ class VectorQuantize(nn.Module):
 
         self._codebook = codebook_class(**codebook_kwargs)
 
-        if in_place_codebook_optimizer is not None:
-            self.in_place_codebook_optimizer = in_place_codebook_optimizer(self._codebook.parameters())
+        self.in_place_codebook_optimizer = in_place_codebook_optimizer(self._codebook.parameters()) if exists(in_place_codebook_optimizer) else None
 
         self.codebook_size = codebook_size
 
@@ -785,7 +786,7 @@ class VectorQuantize(nn.Module):
         shape, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
-        should_inplace_optimize = hasattr(self, 'in_place_codebook_optimizer')
+        should_inplace_optimize = exists(self.in_place_codebook_optimizer)
 
         # rearrange inputs
 
@@ -814,24 +815,21 @@ class VectorQuantize(nn.Module):
 
         quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
 
+        # one step in-place update
 
         if should_inplace_optimize and self.training:
-            # One step in-place update
-            ((quantize - x.detach())**2).mean().backward()
+            F.mse_loss(quantize, x.detach()).backward()
             self.in_place_codebook_optimizer.step()
             self.in_place_codebook_optimizer.zero_grad()
 
             # Quantize again
             quantize, embed_ind, distances = self._codebook(x, sample_codebook_temp = sample_codebook_temp)
 
-
         if self.training:
             # determine code to use for commitment loss
+            maybe_detach = torch.detach if not self.learnable_codebook else identity
 
-            if not self.learnable_codebook:
-                commit_quantize = quantize.detach()
-            else:
-                commit_quantize = quantize
+            commit_quantize = maybe_detach(quantize)            
 
             # straight through
 
