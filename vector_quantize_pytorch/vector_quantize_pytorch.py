@@ -332,10 +332,10 @@ class EuclideanCodebook(nn.Module):
         old_value = getattr(self, buffer_name)
 
         if not exists(old_value):
-            self.register_buffer(buffer_name, new_value)
+            self.register_buffer(buffer_name, new_value.detach())
             return
 
-        value = old_value * decay + new_value * (1 - decay)
+        value = old_value * decay + new_value.detach() * (1 - decay)
         self.register_buffer(buffer_name, value)
 
     @torch.jit.ignore
