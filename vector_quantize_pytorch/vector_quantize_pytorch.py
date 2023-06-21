@@ -689,8 +689,6 @@ class VectorQuantize(nn.Module):
         self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
 
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
-        assert not learnable_codebook or (learnable_codebook and in_place_codebook_optimizer is not None), \
-                'Must specify an optimizer for the codebook embedding if learnable_codebook is set to True'
 
         assert 0 <= sync_update_v <= 1.
         assert not (sync_update_v > 0. and not learnable_codebook), 'learnable codebook must be turned on'
