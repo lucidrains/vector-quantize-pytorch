@@ -74,7 +74,7 @@ def gumbel_sample(
     assert not (reinmax and not straight_through), 'reinmax can only be turned on if using straight through gumbel softmax'
 
     if not straight_through or temperature <= 0. or not training:
-        return ind, one_hot, None
+        return ind, one_hot
 
     # use reinmax for better second-order accuracy - https://arxiv.org/abs/2304.08612
     # algorithm 2
@@ -89,9 +89,7 @@ def gumbel_sample(
         π1 = (logits / temperature).softmax(dim = dim)
         one_hot = one_hot + π1 - π1.detach()
 
-    st_mult = one_hot.gather(-1, rearrange(ind, '... -> ... 1')) # multiplier for straight-through
-
-    return ind, one_hot, st_mult
+    return ind, one_hot
 
 def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
     denom = x.sum(dim = dim, keepdim = True)
@@ -433,15 +431,15 @@ class EuclideanCodebook(nn.Module):
 
         dist = -torch.cdist(flatten, embed, p = 2)
 
-        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
+        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
 
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
-        quantize = batched_embedding(embed_ind, self.embed)
-
-        if exists(straight_through_mult):
-            mult = unpack_one(straight_through_mult, ps, 'h * d')
-            quantize = quantize * mult
+        if self.training:
+            unpacked_onehot = unpack_one(embed_onehot, ps, 'h * c')
+            quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+        else:
+            quantize = batched_embedding(embed_ind, embed)
 
         if self.training and self.ema_update:
 
@@ -595,14 +593,14 @@ class CosineSimCodebook(nn.Module):
 
         dist = einsum('h n d, h c d -> h n c', flatten, embed)
 
-        embed_ind, embed_onehot, straight_through_mult = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
+        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
         embed_ind = unpack_one(embed_ind, ps, 'h *')
 
-        quantize = batched_embedding(embed_ind, self.embed)
-
-        if exists(straight_through_mult):
-            mult = unpack_one(straight_through_mult, ps, 'h * d')
-            quantize = quantize * mult
+        if self.training:
+            unpacked_onehot = unpack_one(embed_onehot, ps, 'h * c')
+            quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+        else:
+            quantize = batched_embedding(embed_ind, embed)
 
         if self.training and self.ema_update:
             bins = embed_onehot.sum(dim = 1)
@@ -726,7 +724,7 @@ class VectorQuantize(nn.Module):
         )
 
         if affine_param:
-            assert not use_cosine_sim
+            assert not use_cosine_sim, 'affine param is only compatible with euclidean codebook'
             codebook_kwargs = dict(
                 **codebook_kwargs,
                 affine_param = True,
