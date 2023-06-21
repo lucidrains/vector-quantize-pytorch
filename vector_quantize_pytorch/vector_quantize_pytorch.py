@@ -304,8 +304,10 @@ class EuclideanCodebook(nn.Module):
         self.register_buffer('batch_mean', None)
         self.register_buffer('batch_variance', None)
 
-        self.register_buffer('codebook_mean', None)
-        self.register_buffer('codebook_variance', None)
+        self.register_buffer('codebook_mean_needs_init', torch.Tensor([True]))
+        self.register_buffer('codebook_mean', torch.empty(num_codebooks, 1, dim))
+        self.register_buffer('codebook_variance_needs_init', torch.Tensor([True]))
+        self.register_buffer('codebook_variance', torch.empty(num_codebooks, 1, dim))
 
     @torch.jit.ignore
     def init_embed_(self, data):
@@ -329,8 +331,14 @@ class EuclideanCodebook(nn.Module):
     def update_with_decay(self, buffer_name, new_value, decay):
         old_value = getattr(self, buffer_name)
 
-        if not exists(old_value):
+        needs_init = getattr(self, buffer_name + "_needs_init", False)
+
+        if needs_init:
+            self.register_buffer(buffer_name + "_needs_init", torch.Tensor([False]))
+
+        if not exists(old_value) or needs_init:
             self.register_buffer(buffer_name, new_value.detach())
+
             return
 
         value = old_value * decay + new_value.detach() * (1 - decay)
@@ -419,7 +427,7 @@ class EuclideanCodebook(nn.Module):
 
         self.init_embed_(flatten)
 
-        if self.affine_param:
+        if self.affine_param and self.training:
             self.update_affine(flatten, self.embed)
 
         embed = self.embed if self.learnable_codebook else self.embed.detach()
