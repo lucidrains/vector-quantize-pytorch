@@ -352,8 +352,9 @@ class EuclideanCodebook(nn.Module):
 
         data, embed = map(lambda t: rearrange(t, 'h ... d -> h (...) d'), (data, embed))
 
-        self.update_with_decay('codebook_mean', reduce(embed, 'h n d -> h 1 d', 'mean'), self.affine_param_codebook_decay)
-        self.update_with_decay('codebook_variance', reduce(embed, 'h n d -> h 1 d', var_fn), self.affine_param_codebook_decay)
+        if self.training:
+            self.update_with_decay('codebook_mean', reduce(embed, 'h n d -> h 1 d', 'mean'), self.affine_param_codebook_decay)
+            self.update_with_decay('codebook_variance', reduce(embed, 'h n d -> h 1 d', var_fn), self.affine_param_codebook_decay)
 
         if not self.sync_affine_param:
             self.update_with_decay('batch_mean', reduce(data, 'h n d -> h 1 d', 'mean'), self.affine_param_batch_decay)
@@ -427,7 +428,7 @@ class EuclideanCodebook(nn.Module):
 
         self.init_embed_(flatten)
 
-        if self.affine_param and self.training:
+        if self.affine_param:
             self.update_affine(flatten, self.embed)
 
         embed = self.embed if self.learnable_codebook else self.embed.detach()
