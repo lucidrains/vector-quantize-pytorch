@@ -310,9 +310,13 @@ class EuclideanCodebook(nn.Module):
         self.register_buffer('codebook_variance', torch.empty(num_codebooks, 1, dim))
 
     @torch.jit.ignore
-    def init_embed_(self, data):
+    def init_embed_(self, data, mask = None):
         if self.initted:
             return
+
+        if exists(mask):
+            c = data.shape[0]
+            data = rearrange(data[mask], '(c n) d -> c n d', c = c)
 
         embed, cluster_size = kmeans(
             data,
@@ -363,9 +367,8 @@ class EuclideanCodebook(nn.Module):
         data = rearrange(data, 'h ... d -> h (...) d')
 
         if exists(mask):
-            h = data.shape[0]
-            mask = repeat(mask, 'b n -> h (b n)', h = h)
-            data = rearrange(data[mask], '(h n) d -> h n d', h = h)
+            c = data.shape[0]
+            data = rearrange(data[mask], '(c n) d -> c n d', c = c)
 
         # calculate batch mean and variance
 
@@ -440,7 +443,10 @@ class EuclideanCodebook(nn.Module):
         dtype = x.dtype
         flatten, ps = pack_one(x, 'h * d')
 
-        self.init_embed_(flatten)
+        if exists(mask):
+            mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
+
+        self.init_embed_(flatten, mask = mask)
 
         if self.affine_param:
             self.update_affine(flatten, self.embed, mask = mask)
@@ -470,7 +476,6 @@ class EuclideanCodebook(nn.Module):
                 flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
 
             if exists(mask):
-                mask = repeat(mask, 'b n -> h (b n)', h = flatten.shape[0])
                 embed_onehot[~mask] = 0.
 
             cluster_size = embed_onehot.sum(dim = 1)
@@ -552,9 +557,13 @@ class CosineSimCodebook(nn.Module):
             self.register_buffer('embed', embed)
 
     @torch.jit.ignore
-    def init_embed_(self, data):
+    def init_embed_(self, data, mask = None):
         if self.initted:
             return
+
+        if exists(mask):
+            c = data.shape[0]
+            data = rearrange(data[mask], '(c n) d -> c n d', c = c)
 
         embed, cluster_size = kmeans(
             data,
@@ -615,7 +624,10 @@ class CosineSimCodebook(nn.Module):
 
         flatten, ps = pack_one(x, 'h * d')
 
-        self.init_embed_(flatten)
+        if exists(mask):
+            mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
+
+        self.init_embed_(flatten, mask = mask)
 
         embed = self.embed if self.learnable_codebook else self.embed.detach()
 
@@ -632,7 +644,6 @@ class CosineSimCodebook(nn.Module):
 
         if self.training and self.ema_update:
             if exists(mask):
-                mask = repeat(mask, 'b n -> h (b n)', h = flatten.shape[0])
                 embed_onehot[~mask] = 0.
 
             bins = embed_onehot.sum(dim = 1)
@@ -856,7 +867,20 @@ class VectorQuantize(nn.Module):
         # one step in-place update
 
         if should_inplace_optimize and self.training:
-            F.mse_loss(quantize, x.detach()).backward()
+
+            if exists(mask):
+                loss = F.mse_loss(quantize, x.detach(), reduction = 'none')
+
+                loss_mask = mask
+                if is_multiheaded:
+                    loss_mask = repeat(mask, 'b n -> c (b h) n', c = loss.shape[0], h = loss.shape[1] // mask.shape[0])
+
+                loss = loss[loss_mask].mean()
+
+            else:
+                loss = F.mse_loss(quantize, x.detach())
+
+            loss.backward()
             self.in_place_codebook_optimizer.step()
             self.in_place_codebook_optimizer.zero_grad()
 
@@ -924,10 +948,11 @@ class VectorQuantize(nn.Module):
             if self.commitment_weight > 0:
                 if self.commitment_use_cross_entropy_loss:
                     if exists(mask):
+                        ce_loss_mask = mask
                         if is_multiheaded:
-                            mask_with_heads = repeat(mask, 'b n -> b n h', h = heads)
+                            ce_loss_mask = repeat(ce_loss_mask, 'b n -> b n h', h = heads)
 
-                        embed_ind.masked_fill_(~mask_with_heads, -1)
+                        embed_ind.masked_fill_(~ce_loss_mask, -1)
 
                     commit_loss = calculate_ce_loss(embed_ind)
                 else:
@@ -935,10 +960,11 @@ class VectorQuantize(nn.Module):
                         # with variable lengthed sequences
                         commit_loss = F.mse_loss(commit_quantize, x, reduction = 'none')
 
+                        loss_mask = mask
                         if is_multiheaded:
-                            mask_with_heads = repeat(mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
+                            loss_mask = repeat(loss_mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
 
-                        commit_loss = commit_loss[mask_with_heads].mean()
+                        commit_loss = commit_loss[loss_mask].mean()
                     else:
                         commit_loss = F.mse_loss(commit_quantize, x)
 
