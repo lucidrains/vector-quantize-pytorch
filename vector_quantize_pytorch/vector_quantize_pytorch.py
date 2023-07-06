@@ -469,6 +469,10 @@ class EuclideanCodebook(nn.Module):
             if self.affine_param:
                 flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
 
+            if exists(mask):
+                mask = repeat(mask, 'b n -> h (b n)', h = flatten.shape[0])
+                embed_onehot[~mask] = 0.
+
             cluster_size = embed_onehot.sum(dim = 1)
 
             self.all_reduce_fn(cluster_size)
@@ -627,6 +631,10 @@ class CosineSimCodebook(nn.Module):
             quantize = batched_embedding(embed_ind, embed)
 
         if self.training and self.ema_update:
+            if exists(mask):
+                mask = repeat(mask, 'b n -> h (b n)', h = flatten.shape[0])
+                embed_onehot[~mask] = 0.
+
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
 
