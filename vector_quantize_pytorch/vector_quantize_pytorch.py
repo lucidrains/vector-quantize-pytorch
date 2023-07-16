@@ -26,6 +26,12 @@ def identity(t):
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
 
+def cdist(x, y, eps = 1e-10):
+    x2 = reduce(x ** 2, 'b n d -> b n', 'sum')
+    y2 = reduce(y ** 2, 'b n d -> b n', 'sum')
+    xy = einsum('b i d, b j d -> b i j', x, y) * -2
+    return (rearrange(x2, 'b i -> b i 1') + rearrange(y2, 'b j -> b 1 j') + xy).clamp(min = eps).sqrt()
+
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
@@ -458,7 +464,7 @@ class EuclideanCodebook(nn.Module):
             batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
             embed = (embed - self.codebook_mean) * (batch_std / codebook_std) + self.batch_mean
 
-        dist = -torch.cdist(flatten, embed, p = 2)
+        dist = -cdist(flatten, embed)
 
         embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
 
