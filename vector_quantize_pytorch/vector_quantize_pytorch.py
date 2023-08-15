@@ -332,8 +332,10 @@ class EuclideanCodebook(nn.Module):
             all_reduce_fn = self.kmeans_all_reduce_fn
         )
 
+        embed_sum = embed * rearrange(cluster_size, '... -> ... 1')
+
         self.embed.data.copy_(embed)
-        self.embed_avg.data.copy_(embed.clone())
+        self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
@@ -580,8 +582,10 @@ class CosineSimCodebook(nn.Module):
             all_reduce_fn = self.kmeans_all_reduce_fn
         )
 
+        embed_sum = embed * rearrange(cluster_size, '... -> ... 1')
+
         self.embed.data.copy_(embed)
-        self.embed_avg.data.copy_(embed.clone())
+        self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
         self.initted.data.copy_(torch.Tensor([True]))
 
