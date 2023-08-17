@@ -438,7 +438,8 @@ class EuclideanCodebook(nn.Module):
         self,
         x,
         sample_codebook_temp = None,
-        mask = None
+        mask = None,
+        freeze_codebook = False
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -478,7 +479,7 @@ class EuclideanCodebook(nn.Module):
         else:
             quantize = batched_embedding(embed_ind, embed)
 
-        if self.training and self.ema_update:
+        if self.training and self.ema_update and not freeze_codebook:
 
             if self.affine_param:
                 flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
@@ -620,7 +621,8 @@ class CosineSimCodebook(nn.Module):
         self,
         x,
         sample_codebook_temp = None,
-        mask = None
+        mask = None,
+        freeze_codebook = False
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -652,7 +654,7 @@ class CosineSimCodebook(nn.Module):
         else:
             quantize = batched_embedding(embed_ind, embed)
 
-        if self.training and self.ema_update:
+        if self.training and self.ema_update and not freeze_codebook:
             if exists(mask):
                 embed_onehot[~mask] = 0.
 
@@ -691,6 +693,7 @@ class VectorQuantize(nn.Module):
         separate_codebook_per_head = False,
         decay = 0.8,
         eps = 1e-5,
+        freeze_codebook = False,
         kmeans_init = False,
         kmeans_iters = 10,
         sync_kmeans = True,
@@ -796,10 +799,18 @@ class VectorQuantize(nn.Module):
     @property
     def codebook(self):
         codebook = self._codebook.embed
+
         if self.separate_codebook_per_head:
             return codebook
 
         return rearrange(codebook, '1 ... -> ...')
+
+    @codebook.setter
+    def codebook(self, codes):
+        if not self.separate_codebook_per_head:
+            codes = rearrange(codes, '... -> 1 ...')
+
+        self._codebook.embed.copy_(codes)
 
     def get_codes_from_indices(self, indices):
         codebook = self.codebook
@@ -825,7 +836,8 @@ class VectorQuantize(nn.Module):
         x,
         indices = None,
         mask = None,
-        sample_codebook_temp = None
+        sample_codebook_temp = None,
+        freeze_codebook = False
     ):
         orig_input = x
 
@@ -867,7 +879,8 @@ class VectorQuantize(nn.Module):
 
         codebook_forward_kwargs = dict(
             sample_codebook_temp = sample_codebook_temp,
-            mask = mask
+            mask = mask,
+            freeze_codebook = freeze_codebook
         )
 
         # quantize
@@ -876,7 +889,7 @@ class VectorQuantize(nn.Module):
 
         # one step in-place update
 
-        if should_inplace_optimize and self.training:
+        if should_inplace_optimize and self.training and not freeze_codebook:
 
             if exists(mask):
                 loss = F.mse_loss(quantize, x.detach(), reduction = 'none')
@@ -900,7 +913,7 @@ class VectorQuantize(nn.Module):
 
         if self.training:
             # determine code to use for commitment loss
-            maybe_detach = torch.detach if not self.learnable_codebook else identity
+            maybe_detach = torch.detach if not self.learnable_codebook or freeze_codebook else identity
 
             commit_quantize = maybe_detach(quantize)            
 
