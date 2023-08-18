@@ -28,7 +28,9 @@ class ResidualVQ(nn.Module):
     def __init__(
         self,
         *,
+        dim,
         num_quantizers,
+        codebook_dim = None,
         shared_codebook = False,
         heads = 1,
         quantize_dropout = False,
@@ -39,11 +41,17 @@ class ResidualVQ(nn.Module):
     ):
         super().__init__()
         assert heads == 1, 'residual vq is not compatible with multi-headed codes'
+        codebook_dim = default(codebook_dim, dim)
+        codebook_input_dim = codebook_dim * heads
+
+        requires_projection = codebook_input_dim != dim
+        self.project_in = nn.Linear(dim, codebook_input_dim) if requires_projection else nn.Identity()
+        self.project_out = nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
 
         self.num_quantizers = num_quantizers
 
         self.accept_image_fmap = accept_image_fmap
-        self.layers = nn.ModuleList([VectorQuantize(accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
+        self.layers = nn.ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
 
         self.quantize_dropout = quantize_dropout and num_quantizers > 1
 
@@ -114,6 +122,8 @@ class ResidualVQ(nn.Module):
     ):
         num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
 
+        x = self.project_in(x)
+
         assert not (self.accept_image_fmap and exists(indices))
 
         quantized_out = 0.
@@ -168,6 +178,10 @@ class ResidualVQ(nn.Module):
 
             all_indices.append(embed_indices)
             all_losses.append(loss)
+
+        # project out, if needed
+
+        quantized_out = self.project_out(quantized_out)
 
         # whether to early return the cross entropy loss
 
