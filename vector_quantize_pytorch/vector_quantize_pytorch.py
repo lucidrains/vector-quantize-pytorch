@@ -710,7 +710,7 @@ class VectorQuantize(nn.Module):
         sample_codebook_temp = 1.,
         straight_through = False,
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
-        sync_codebook = False,
+        sync_codebook = None,
         sync_affine_param = False,
         ema_update = True,
         learnable_codebook = False,
@@ -759,6 +759,9 @@ class VectorQuantize(nn.Module):
             reinmax = reinmax,
             straight_through = straight_through
         )
+
+        if not exists(sync_codebook):
+            sync_codebook = distributed.is_initialized() and distributed.get_world_size() > 1
 
         codebook_kwargs = dict(
             dim = codebook_dim,
