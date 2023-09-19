@@ -193,7 +193,7 @@ def kmeans(
         if use_cosine_sim:
             dists = samples @ rearrange(means, 'h n d -> h d n')
         else:
-            dists = -torch.cdist(samples, means, p = 2)
+            dists = -cdist(samples, means)
 
         buckets = torch.argmax(dists, dim = -1)
         bins = batched_bincount(buckets, minlength = num_clusters)

@@ -28,7 +28,7 @@ class SimpleVQAutoEncoder(nn.Module):
                 nn.GELU(),
                 nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
                 nn.MaxPool2d(kernel_size=2, stride=2),
-                VectorQuantize(dim=32, **vq_kwargs),
+                VectorQuantize(dim=32, accept_image_fmap = True, **vq_kwargs),
                 nn.Upsample(scale_factor=2, mode="nearest"),
                 nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
                 nn.GELU(),
@@ -41,12 +41,10 @@ class SimpleVQAutoEncoder(nn.Module):
     def forward(self, x):
         for layer in self.layers:
             if isinstance(layer, VectorQuantize):
-                x_shape = x.shape[:-1]
-                x_flat = x.view(x.size(0), -1, x.size(1))
-                x_flat, indices, commit_loss = layer(x_flat)
-                x = x_flat.view(*x_shape, -1)
+                x_flat, indices, commit_loss = layer(x)
             else:
                 x = layer(x)
+
         return x.clamp(-1, 1), indices, commit_loss
 
 
