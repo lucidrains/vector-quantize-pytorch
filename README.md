@@ -384,3 +384,14 @@ This repository should also automatically synchronizing the codebooks in a multi
     primaryClass = {cs.CV}
 }
 ```
+
+```bibtex
+@misc{mentzer2023finite,
+    title   = {Finite Scalar Quantization: VQ-VAE Made Simple},
+    author  = {Fabian Mentzer and David Minnen and Eirikur Agustsson and Michael Tschannen},
+    year    = {2023},
+    eprint  = {2309.15505},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```
