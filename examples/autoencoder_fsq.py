@@ -28,11 +28,11 @@ class SimpleFSQAutoEncoder(nn.Module):
                 nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
                 nn.MaxPool2d(kernel_size=2, stride=2),
                 nn.GELU(),
-                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-                nn.Conv2d(32, 32, kernel_size=6, stride=3, padding=0),
+                nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(8, 8, kernel_size=6, stride=3, padding=0),
                 FSQ(levels),
-                nn.ConvTranspose2d(32, 32, kernel_size=6, stride=3, padding=0),
-                nn.Conv2d(32, 16, kernel_size=4, stride=1, padding=2),
+                nn.ConvTranspose2d(8, 8, kernel_size=6, stride=3, padding=0),
+                nn.Conv2d(8, 16, kernel_size=4, stride=1, padding=2),
                 nn.GELU(),
                 nn.Upsample(scale_factor=2, mode="nearest"),
                 nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=2),
@@ -43,7 +43,7 @@ class SimpleFSQAutoEncoder(nn.Module):
     def forward(self, x):
         for layer in self.layers:
             if isinstance(layer, FSQ):
-                x_flat, indices = layer(x)
+                x, indices = layer(x)
             else:
                 x = layer(x)
 

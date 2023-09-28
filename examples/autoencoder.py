@@ -41,7 +41,7 @@ class SimpleVQAutoEncoder(nn.Module):
     def forward(self, x):
         for layer in self.layers:
             if isinstance(layer, VectorQuantize):
-                x_flat, indices, commit_loss = layer(x)
+                x, indices, commit_loss = layer(x)
             else:
                 x = layer(x)
 
