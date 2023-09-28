@@ -65,7 +65,6 @@ def train(model, train_loader, train_iterations=1000):
         opt.zero_grad()
         x, _ = next(iterate_dataset(train_loader))
         out, indices = model(x)
-        print("out:", out.shape)
         rec_loss = (out - x).abs().mean()
         rec_loss.backward()
 
