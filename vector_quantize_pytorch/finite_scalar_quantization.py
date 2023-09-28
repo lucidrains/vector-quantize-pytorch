@@ -15,11 +15,21 @@ def round_ste(z: torch.Tensor) -> torch.Tensor:
 
 class FSQ(nn.Module):
     def __init__(self, levels: list[int]):
-        self._levels = torch.tensor(levels, dtype=torch.int32)
-        self._basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dtype=torch.int32)
+        super().__init__()
+        _levels = torch.tensor(levels, dtype=torch.int32)
+        self.register_buffer("_levels", _levels)
+
+        _basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=torch.int32)
+        self.register_buffer("_basis", _basis)
 
         codebook_size = self._levels.prod()
-        self.implicit_codebook = self.indices_to_codes(torch.arange(codebook_size))
+        implicit_codebook = self.indices_to_codes(torch.arange(codebook_size))
+        self.register_buffer("implicit_codebook", implicit_codebook)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        zhat = self.quantize(z)
+        indices = self.codes_to_indices(zhat)
+        return self.implicit_codebook[indices], indices
 
     def bound(self, z: torch.Tensor, eps: float = 1e-3) -> torch.Tensor:
         """Bound `z`, an array of shape (..., d)."""
