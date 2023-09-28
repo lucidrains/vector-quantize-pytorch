@@ -43,7 +43,6 @@ class SimpleFSQAutoEncoder(nn.Module):
     def forward(self, x):
         for layer in self.layers:
             if isinstance(layer, FSQ):
-                print(x.shape)
                 x_flat, indices = layer(x)
             else:
                 x = layer(x)
