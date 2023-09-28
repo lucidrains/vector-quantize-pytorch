@@ -29,7 +29,7 @@ class FSQ(nn.Module):
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         zhat = self.quantize(z)
         indices = self.codes_to_indices(zhat)
-        return self.implicit_codebook[indices], indices
+        return zhat, indices
 
     def bound(self, z: torch.Tensor, eps: float = 1e-3) -> torch.Tensor:
         """Bound `z`, an array of shape (..., d)."""
