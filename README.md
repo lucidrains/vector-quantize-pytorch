@@ -274,16 +274,15 @@ from vector_quantize_pytorch import FSQ
 levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
 quantizer = FSQ(levels)
 
-x = torch.randn(1, 1024, quantizer.dim)
+x = torch.randn(1, 1024, 4) # 4 since there are 4 levels
 xhat, indices = quantizer(x)
 
 print(xhat.shape)    # (1, 1024, 4) - (batch, seq, dim)
 print(indices.shape) # (1, 1024)    - (batch, seq)
 
+assert xhat.shape == x.shape
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
-assert torch.all(xhat == quantizer.implicit_codebook[indices])
 ```
-
 
 
 ## Todo
