@@ -265,6 +265,7 @@ This repository should also automatically synchronizing the codebooks in a multi
 
 [This](https://arxiv.org/abs/2309.15505) work out of Google Deepmind aims to vastly simplify the way vector quantization is done for generative modeling, removing the need for commitment losses, EMA updating of the codebook, as well as tackle the issues with codebook collapse or insufficient utilization. They simply round each scalar into discrete levels with straight through gradients; the codes become uniform points in a hypercube.
 
+Thanks goes out to [@sekstini](https://github.com/sekstini)for porting over this implementation in record time!
 
 ```python
 import torch
