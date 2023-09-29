@@ -22,8 +22,9 @@ class FSQ(nn.Module):
         _basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=torch.int32)
         self.register_buffer("_basis", _basis)
 
-        codebook_size = self._levels.prod()
-        implicit_codebook = self.indices_to_codes(torch.arange(codebook_size))
+        self.dim = len(levels)
+        self.n_codes = self._levels.prod().item()
+        implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes))
         self.register_buffer("implicit_codebook", implicit_codebook)
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
@@ -54,7 +55,7 @@ class FSQ(nn.Module):
     
     def codes_to_indices(self, zhat: torch.Tensor) -> torch.Tensor:
         """Converts a `code` to an index in the codebook."""
-        assert zhat.shape[-1] == len(self._levels)
+        assert zhat.shape[-1] == self.dim
         zhat = self._scale_and_shift(zhat)
         return (zhat * self._basis).sum(dim=-1).to(torch.int32)
     
