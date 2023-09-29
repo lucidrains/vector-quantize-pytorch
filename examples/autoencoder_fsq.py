@@ -1,54 +1,56 @@
-# FashionMnist VQ experiment with various settings.
+# FashionMnist VQ experiment with various settings, using FSQ.
 # From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
 
 from tqdm.auto import trange
 
+import math
 import torch
 import torch.nn as nn
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch import FSQ
 
 
 lr = 3e-4
 train_iter = 1000
-num_codes = 256
+levels = [8, 6, 5] # target size 2^8, actual size 240
+num_codes = math.prod(levels)
 seed = 1234
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-class SimpleVQAutoEncoder(nn.Module):
-    def __init__(self, **vq_kwargs):
+class SimpleFSQAutoEncoder(nn.Module):
+    def __init__(self, levels: list[int]):
         super().__init__()
         self.layers = nn.ModuleList(
             [
                 nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
                 nn.MaxPool2d(kernel_size=2, stride=2),
                 nn.GELU(),
-                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                VectorQuantize(dim=32, accept_image_fmap = True, **vq_kwargs),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(8, 8, kernel_size=6, stride=3, padding=0),
+                FSQ(levels),
+                nn.ConvTranspose2d(8, 8, kernel_size=6, stride=3, padding=0),
+                nn.Conv2d(8, 16, kernel_size=4, stride=1, padding=2),
                 nn.GELU(),
                 nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=2),
             ]
         )
         return
 
     def forward(self, x):
         for layer in self.layers:
-            if isinstance(layer, VectorQuantize):
-                x, indices, commit_loss = layer(x)
+            if isinstance(layer, FSQ):
+                x, indices = layer(x)
             else:
                 x = layer(x)
 
-        return x.clamp(-1, 1), indices, commit_loss
+        return x.clamp(-1, 1), indices
 
 
-def train(model, train_loader, train_iterations=1000, alpha=10):
+def train(model, train_loader, train_iterations=1000):
     def iterate_dataset(data_loader):
         data_iter = iter(data_loader)
         while True:
@@ -62,14 +64,13 @@ def train(model, train_loader, train_iterations=1000, alpha=10):
     for _ in (pbar := trange(train_iterations)):
         opt.zero_grad()
         x, _ = next(iterate_dataset(train_loader))
-        out, indices, cmt_loss = model(x)
+        out, indices = model(x)
         rec_loss = (out - x).abs().mean()
-        (rec_loss + alpha * cmt_loss).backward()
+        rec_loss.backward()
 
         opt.step()
         pbar.set_description(
             f"rec loss: {rec_loss.item():.3f} | "
-            + f"cmt loss: {cmt_loss.item():.3f} | "
             + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
         )
     return
@@ -88,6 +89,6 @@ train_dataset = DataLoader(
 
 print("baseline")
 torch.random.manual_seed(seed)
-model = SimpleVQAutoEncoder(codebook_size=num_codes).to(device)
+model = SimpleFSQAutoEncoder(levels).to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
 train(model, train_dataset, train_iterations=train_iter)
