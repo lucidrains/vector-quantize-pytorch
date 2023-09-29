@@ -255,9 +255,16 @@ This repository should also automatically synchronizing the codebooks in a multi
 
 <img src="./fsq.png" width="500px"></img>
 
-TODO: Write description
+|                  | VQ | FSQ |
+|------------------|----|-----|
+| Quantization     | argmin_c \|\| z-c \|\| | round(f(z)) |
+| Gradients        | Straight Through Estimation (STE) | STE |
+| Auxiliary Losses | Commitment, codebook, entropy loss, ... | N/A |
+| Tricks           | EMA on codebook, codebook splitting, projections, ...| N/A |
+| Parameters       | Codebook | N/A |
 
-arxiv: https://arxiv.org/abs/2309.15505
+[This](https://arxiv.org/abs/2309.15505) work out of Google Deepmind aims to vastly simplify the way vector quantization is done for generative modeling, removing the need for commitment losses, EMA updating of the codebook, as well as tackle the issues with codebook collapse or insufficient utilization. They simply round each scalar into discrete levels with straight through gradients; the codes become uniform points in a hypercube.
+
 
 ```python
 import torch
