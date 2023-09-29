@@ -251,6 +251,40 @@ indices = quantizer(x) # (1, 1024, 16) - (batch, seq, num_codebooks)
 
 This repository should also automatically synchronizing the codebooks in a multi-process setting. If somehow it isn't, please open an issue. You can override whether to synchronize codebooks or not by setting `sync_codebook = True | False`
 
+### Finite Scalar Quantization
+
+<img src="./fsq.png" width="500px"></img>
+
+|                  | VQ | FSQ |
+|------------------|----|-----|
+| Quantization     | argmin_c \|\| z-c \|\| | round(f(z)) |
+| Gradients        | Straight Through Estimation (STE) | STE |
+| Auxiliary Losses | Commitment, codebook, entropy loss, ... | N/A |
+| Tricks           | EMA on codebook, codebook splitting, projections, ...| N/A |
+| Parameters       | Codebook | N/A |
+
+[This](https://arxiv.org/abs/2309.15505) work out of Google Deepmind aims to vastly simplify the way vector quantization is done for generative modeling, removing the need for commitment losses, EMA updating of the codebook, as well as tackle the issues with codebook collapse or insufficient utilization. They simply round each scalar into discrete levels with straight through gradients; the codes become uniform points in a hypercube.
+
+
+```python
+import torch
+from vector_quantize_pytorch import FSQ
+
+levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
+quantizer = FSQ(levels)
+
+x = torch.randn(1, 1024, quantizer.dim)
+xhat, indices = quantizer(x)
+
+print(xhat.shape)    # (1, 1024, 4) - (batch, seq, dim)
+print(indices.shape) # (1, 1024)    - (batch, seq)
+
+assert torch.all(xhat == quantizer.indices_to_codes(indices))
+assert torch.all(xhat == quantizer.implicit_codebook[indices])
+```
+
+
+
 ## Todo
 
 - [x] allow for multi-headed codebooks
@@ -380,6 +414,17 @@ This repository should also automatically synchronizing the codebooks in a multi
     author  = {Woncheol Shin and Gyubok Lee and Jiyoung Lee and Joonseok Lee and Edward Choi},
     year    = {2021},
     eprint  = {2112.00384},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```
+
+```bibtex
+@misc{mentzer2023finite,
+    title   = {Finite Scalar Quantization: VQ-VAE Made Simple},
+    author  = {Fabian Mentzer and David Minnen and Eirikur Agustsson and Michael Tschannen},
+    year    = {2023},
+    eprint  = {2309.15505},
     archivePrefix = {arXiv},
     primaryClass = {cs.CV}
 }
