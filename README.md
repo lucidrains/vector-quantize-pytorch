@@ -284,12 +284,39 @@ assert xhat.shape == x.shape
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
 ```
 
+### Lookup Free Quantization
 
-## Todo
+<img src="./lfq.png" width="450px"></img>
 
-- [x] allow for multi-headed codebooks
-- [x] support masking
-- [x] make sure affine param works with (`sync_affine_param` set to `True`)
+The research team behind <a href="https://arxiv.org/abs/2212.05199">MagViT</a> has released new SOTA results for generative video modeling. The core change between v1 and v2 of their architecture is using a new type of quantization, which is essentially the same as <a href="https://arxiv.org/abs/2309.15505">Finite Scalar Quantization</a> but with 2 levels (binary latents). (FSQ would be a generalization of this technique). However, this team chose to use extra entropy regularizations to promote codebook usage.
+
+Finite scalar quantization and follow up papers will likely lead to further game changing results in generative modeling.
+
+You can use it simply as follows. Will be dogfooded at <a href="https://github.com/lucidrains/magvit2-pytorch">MagViT2 pytorch port</a>
+
+```python
+import torch
+from vector_quantize_pytorch import LFQ
+
+# you can specify either dim or codebook_size
+# if both specified, will be validated against each other
+
+quantizer = LFQ(
+    dim = 16,                   # this is the input feature dimension, but also the log2(codebook_size)
+    # codebook_size = 2 ** 16,    # correspondingly, this would be 2 ^ dim - since each scalar in the feature dimension is a binary latent
+    entropy_loss_weight = 0.1,  # how much weight to place on entropy loss
+    diversity_gamma = 1.        # within entropy loss, how much weight to give to diversity of codes, taken from https://arxiv.org/abs/1911.05894
+)
+
+image_feats = torch.randn(1, 16, 32, 32)
+
+quantized, indices, entropy_aux_loss = quantizer(image_feats)
+
+# (1, 16, 32, 32), (1, 32, 32), (1,)
+
+assert image_feats.shape == quantized.shape
+assert (quantized == quantizer.indices_to_codes(indices)).all()
+```
 
 ## Citations
 

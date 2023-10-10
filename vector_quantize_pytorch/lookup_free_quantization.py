@@ -104,13 +104,12 @@ class LFQ(Module):
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
 
     def indices_to_codes(self, indices):
-        is_img_or_video = indices.ndim >= 4
+        is_img_or_video = indices.ndim >= 3
 
         # rearrange if image or video into (batch, seq, dimension)
 
         if is_img_or_video:
-            indices = rearrange(xindices, 'b d ... -> b ... d')
-            indices, ps = pack_one(indices, 'b * d')
+            indices, ps = pack_one(indices, 'b *')
 
         # indices to codes, which are bits of either -1 or 1
 
