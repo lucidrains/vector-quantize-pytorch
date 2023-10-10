@@ -82,7 +82,7 @@ class LFQ(Module):
     ):
         super().__init__()
 
-        # some asesrt validations
+        # some assert validations
 
         assert exists(dim) or exists(codebook_size)
         assert not exists(codebook_size) or log2(codebook_size).is_integer()
@@ -168,7 +168,7 @@ class LFQ(Module):
         # entropy aux loss (todo)
 
         if self.training:
-            prob = x.sigmoid()
+            prob = (x * inv_temperature).sigmoid()
 
             bit_entropy = binary_entropy(prob).mean()
 
