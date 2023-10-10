@@ -36,10 +36,22 @@ def pack_one(t, pattern):
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
 
+# entropy
+
+def binary_entropy(prob):
+    return -prob * log(prob) - (1 - prob) * log(1 - prob)
+
+# tensor helpers
+
+def log(t, eps = 1e-20):
+    return t.clamp(min = eps).log()
+
 # convert to bit representations and back
 
 def decimal_to_bits(x, bits):
     device = x.device
+
+    x = x.int()
 
     mask = 2 ** torch.arange(bits - 1, -1, -1, device = device)
     x = rearrange(x, 'b n -> b n 1')
@@ -49,7 +61,7 @@ def decimal_to_bits(x, bits):
     return bits * 2 - 1
 
 def bits_to_decimal(x, bits):
-    device = x.device
+    device, dtype = x.device, x.dtype
 
     x = (x > 0).int()
 
@@ -99,6 +111,8 @@ class LFQ(Module):
         if is_img_or_video:
             indices = rearrange(xindices, 'b d ... -> b ... d')
             indices, ps = pack_one(indices, 'b * d')
+
+        # indices to codes, which are bits of either -1 or 1
 
         codes = decimal_to_bits(indices, self.dim)
 
@@ -153,7 +167,23 @@ class LFQ(Module):
 
         # entropy aux loss (todo)
 
-        entropy_aux_loss = self.zero
+        if self.training:
+            prob = x.sigmoid()
+
+            bit_entropy = binary_entropy(prob).mean()
+
+            avg_prob = reduce(prob, 'b n d -> b d', 'mean')
+            codebook_entropy = binary_entropy(avg_prob).mean()
+
+            # 1. entropy will be nudged to be low for each bit, so each scalar commits to one latent binary bit or the other
+            # 2. codebook entropy will be nudged to be high, to encourage all codes to be uniformly used
+
+            entropy_aux_loss = bit_entropy - self.diversity_gamma * codebook_entropy
+        else:
+            # if not training, just return dummy 0
+            entropy_aux_loss = self.zero
+
+        entropy_aux_loss = entropy_aux_loss * self.entropy_loss_weight
 
         # reconstitute image or video dimensions
 
