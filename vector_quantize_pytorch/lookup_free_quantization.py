@@ -164,7 +164,7 @@ class LFQ(Module):
 
         indices = bits_to_decimal(x, self.dim)
 
-        # entropy aux loss (todo)
+        # entropy aux loss
 
         if self.training:
             prob = (x * inv_temperature).sigmoid()
