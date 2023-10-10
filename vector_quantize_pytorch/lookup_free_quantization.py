@@ -13,7 +13,7 @@ import torch
 from torch import nn, Tensor
 from torch.nn import Module, ModuleList
 
-from einops import rearrange, pack, unpack
+from einops import rearrange, reduce, pack, unpack
 
 # constants
 
@@ -35,6 +35,31 @@ def pack_one(t, pattern):
 
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
+
+# convert to bit representations and back
+
+def decimal_to_bits(x, bits):
+    device = x.device
+
+    mask = 2 ** torch.arange(bits - 1, -1, -1, device = device)
+    mask = rearrange(mask, 'd -> d 1 1')
+    x = rearrange(x, 'b c h w -> b c 1 h w')
+
+    bits = ((x & mask) != 0).float()
+    bits = rearrange(bits, 'b c d h w -> b (c d) h w')
+    return bits * 2 - 1
+
+def bits_to_decimal(x, bits):
+    device = x.device
+
+    x = (x > 0).int()
+    mask = 2 ** torch.arange(bits - 1, -1, -1, device = device, dtype = torch.int32)
+
+    mask = rearrange(mask, 'd -> d 1 1')
+    x = rearrange(x, 'b (c d) h w -> b c d h w', d = bits)
+    dec = reduce(x * mask, 'b c d h w -> b c h w', 'sum')
+
+    return dec
 
 # class
 
@@ -71,9 +96,13 @@ class LFQ(Module):
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
 
     def indices_to_codes(self, indices):
-        raise NotImplementedError
+        return decimal_to_bits(indices, self.dim)
 
-    def forward(self, x):
+    def forward(
+        self,
+        x,
+        inv_temperature = 1.
+    ):
         """
         einstein notation
         b - batch
@@ -83,14 +112,39 @@ class LFQ(Module):
 
         is_img_or_video = x.ndim >= 4
 
+        # rearrange if image or video into (batch, seq, dimension)
+
         if is_img_or_video:
             x = rearrange(x, 'b d ... -> b ... d')
             x, ps = pack_one(x, 'b * d')
 
         assert x.shape[-1] == self.dim
 
+        # quantize by eq 3.
+
+        greater_than_zero = x > 0
+        ones = torch.ones_like(x)
+
+        quantized = torch.where(greater_than_zero, ones, -ones)
+
+        # use straight-through gradients with tanh
+
+        x = torch.tanh(x * inv_temperature)
+
+        x = x - x.detach() + quantized
+
+        # entropy aux loss (todo)
+
+        entropy_aux_loss = self.zero
+
+        # reconstitute image or video dimensions
+
         if is_img_or_video:
             x = unpack_one(x, ps, 'b * d')
             x = rearrange(x, 'b ... d -> b d ...')
 
-        raise NotImplementedError
+        # bits to decimal for the codebook indices
+
+        indices = bits_to_decimal(x, self.dim)
+
+        return Return(x, indices, entropy_aux_loss)
