@@ -42,23 +42,19 @@ def decimal_to_bits(x, bits):
     device = x.device
 
     mask = 2 ** torch.arange(bits - 1, -1, -1, device = device)
-    mask = rearrange(mask, 'd -> d 1 1')
-    x = rearrange(x, 'b c h w -> b c 1 h w')
+    x = rearrange(x, 'b n -> b n 1')
 
     bits = ((x & mask) != 0).float()
-    bits = rearrange(bits, 'b c d h w -> b (c d) h w')
+    bits = rearrange(bits, 'b n d -> b n d')
     return bits * 2 - 1
 
 def bits_to_decimal(x, bits):
     device = x.device
 
     x = (x > 0).int()
+
     mask = 2 ** torch.arange(bits - 1, -1, -1, device = device, dtype = torch.int32)
-
-    mask = rearrange(mask, 'd -> d 1 1')
-    x = rearrange(x, 'b (c d) h w -> b c d h w', d = bits)
-    dec = reduce(x * mask, 'b c d h w -> b c h w', 'sum')
-
+    dec = reduce(x * mask, 'b n d -> b n', 'sum')
     return dec
 
 # class
@@ -96,7 +92,23 @@ class LFQ(Module):
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
 
     def indices_to_codes(self, indices):
-        return decimal_to_bits(indices, self.dim)
+        is_img_or_video = indices.ndim >= 4
+
+        # rearrange if image or video into (batch, seq, dimension)
+
+        if is_img_or_video:
+            indices = rearrange(xindices, 'b d ... -> b ... d')
+            indices, ps = pack_one(indices, 'b * d')
+
+        codes = decimal_to_bits(indices, self.dim)
+
+        # rearrange codes back to original shape
+
+        if is_img_or_video:
+            codes = unpack_one(codes, ps, 'b * d')
+            codes = rearrange(codes, 'b ... d -> b d ...')
+
+        return codes
 
     def forward(
         self,
@@ -127,11 +139,17 @@ class LFQ(Module):
 
         quantized = torch.where(greater_than_zero, ones, -ones)
 
-        # use straight-through gradients with tanh
+        # use straight-through gradients with tanh if training
 
-        x = torch.tanh(x * inv_temperature)
+        if self.training:
+            x = torch.tanh(x * inv_temperature)
+            x = x - x.detach() + quantized
+        else:
+            x = quantized
 
-        x = x - x.detach() + quantized
+        # calculate indices
+
+        indices = bits_to_decimal(x, self.dim)
 
         # entropy aux loss (todo)
 
@@ -143,8 +161,9 @@ class LFQ(Module):
             x = unpack_one(x, ps, 'b * d')
             x = rearrange(x, 'b ... d -> b d ...')
 
-        # bits to decimal for the codebook indices
+            indices = unpack_one(x, ps, 'b * d')
+            indices = rearrange(indices, 'b ... d -> b d ...')
 
-        indices = bits_to_decimal(x, self.dim)
+        # bits to decimal for the codebook indices
 
         return Return(x, indices, entropy_aux_loss)
