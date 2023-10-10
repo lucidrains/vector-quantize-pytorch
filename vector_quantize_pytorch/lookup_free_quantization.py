@@ -13,7 +13,7 @@ import torch
 from torch import nn, Tensor
 from torch.nn import Module, ModuleList
 
-from einops import rearrange
+from einops import rearrange, pack, unpack
 
 # constants
 
@@ -29,6 +29,12 @@ def default(*args):
         if exists(arg):
             return arg
     return None
+
+def pack_one(t, pattern):
+    return pack([t], pattern)
+
+def unpack_one(t, ps, pattern):
+    return unpack(t, ps, pattern)[0]
 
 # class
 
@@ -53,6 +59,13 @@ class LFQ(Module):
 
         assert (2 ** dim) == codebook_size, f'2 ^ dimension ({dim}) must be equal to the codebook size ({codebook_size})'
 
+        self.dim = dim
+
+        # entropy aux loss related weights
+
+        self.diversity_gamma = diversity_gamma
+        self.entropy_loss_weight = entropy_loss_weight
+
         # for no auxiliary loss, during inference
 
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
@@ -61,4 +74,23 @@ class LFQ(Module):
         raise NotImplementedError
 
     def forward(self, x):
+        """
+        einstein notation
+        b - batch
+        n - sequence (or flattened spatial dimensions)
+        d - feature dimension, which is also log2(codebook size)
+        """
+
+        is_img_or_video = x.ndim >= 4
+
+        if is_img_or_video:
+            x = rearrange(x, 'b d ... -> b ... d')
+            x, ps = pack_one(x, 'b * d')
+
+        assert x.shape[-1] == self.dim
+
+        if is_img_or_video:
+            x = unpack_one(x, ps, 'b * d')
+            x = rearrange(x, 'b ... d -> b d ...')
+
         raise NotImplementedError
