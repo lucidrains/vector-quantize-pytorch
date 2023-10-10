@@ -17,7 +17,7 @@ setup(
     'quantization'
   ],
   install_requires=[
-    'einops>=0.6.1',
+    'einops>=0.7.0',
     'torch'
   ],
   classifiers=[

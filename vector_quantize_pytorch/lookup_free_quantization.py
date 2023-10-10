@@ -78,7 +78,7 @@ class LFQ(Module):
         dim = None,
         codebook_size = None,
         entropy_loss_weight = 0.1,
-        diversity_gamma = 1.
+        diversity_gamma = 2.5
     ):
         super().__init__()
 

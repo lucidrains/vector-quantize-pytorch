@@ -13,9 +13,10 @@ from torch.utils.data import DataLoader
 from vector_quantize_pytorch import LFQ
 
 lr = 3e-4
-train_iter = 1000
+train_iter = 10000
 seed = 1234
-codebook_size = 2 ** 10
+codebook_size = 2 ** 8
+diversity_gamma = 10.
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class LFQAutoEncoder(nn.Module):
@@ -32,6 +33,8 @@ class LFQAutoEncoder(nn.Module):
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
             nn.Conv2d(16, quantize_dim, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
@@ -41,6 +44,8 @@ class LFQAutoEncoder(nn.Module):
         self.decode = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(quantize_dim, 16, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
             nn.GELU(),
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1)
@@ -77,7 +82,7 @@ def train(model, train_loader, train_iterations=1000):
         pbar.set_description(
               f"rec loss: {rec_loss.item():.3f} | "
             + f"entropy aux loss: {entropy_aux_loss.item():.3f} | "
-            + f"active %: {indices.unique().numel() / 256 * 100:.3f}"
+            + f"active %: {indices.unique().numel() / codebook_size * 100:.3f}"
         )
     return
 
@@ -96,7 +101,12 @@ train_dataset = DataLoader(
 print("baseline")
 
 torch.random.manual_seed(seed)
-model = LFQAutoEncoder(codebook_size = codebook_size).to(device)
+
+model = LFQAutoEncoder(
+    codebook_size = codebook_size,
+    diversity_gamma = diversity_gamma
+).to(device)
+
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
 
 train(model, train_dataset, train_iterations=train_iter)
