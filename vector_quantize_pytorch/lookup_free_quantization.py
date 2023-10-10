@@ -191,8 +191,7 @@ class LFQ(Module):
             x = unpack_one(x, ps, 'b * d')
             x = rearrange(x, 'b ... d -> b d ...')
 
-            indices = unpack_one(x, ps, 'b * d')
-            indices = rearrange(indices, 'b ... d -> b d ...')
+            indices = unpack_one(indices, ps, 'b *')
 
         # bits to decimal for the codebook indices
 
