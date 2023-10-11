@@ -11,7 +11,7 @@ from collections import namedtuple
 
 import torch
 from torch import nn, Tensor
-from torch.nn import Module, ModuleList
+from torch.nn import Module
 
 from einops import rearrange, reduce, pack, unpack
 
@@ -61,7 +61,7 @@ def decimal_to_bits(x, bits):
     return bits * 2 - 1
 
 def bits_to_decimal(x, bits):
-    device, dtype = x.device, x.dtype
+    device = x.device
 
     x = (x > 0).int()
 
