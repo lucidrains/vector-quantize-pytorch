@@ -84,6 +84,7 @@ class LFQ(Module):
 
         # some assert validations
 
+        assert exists(dim) or exists(codebook_size), 'either dim or codebook_size must be specified for LFQ'
         assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
         codebook_size = default(codebook_size, 2 ** dim)
