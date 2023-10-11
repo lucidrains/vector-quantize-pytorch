@@ -6,7 +6,7 @@ basically a 2-level FSQ (Finite Scalar Quantization) with entropy loss
 https://arxiv.org/abs/2309.15505
 """
 
-from math import log2
+from math import log2, ceil
 from collections import namedtuple
 
 import torch
@@ -84,7 +84,7 @@ class LFQ(Module):
 
         # some assert validations
 
-        assert not exists(codebook_size) or log2(codebook_size).is_integer()
+        assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
         codebook_size = default(codebook_size, 2 ** dim)
         codebook_dim = int(log2(codebook_size))
