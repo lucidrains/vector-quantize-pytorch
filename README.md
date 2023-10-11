@@ -318,6 +318,22 @@ assert image_feats.shape == quantized.shape
 assert (quantized == quantizer.indices_to_codes(indices)).all()
 ```
 
+You can also pass in video features as `(batch, feat, time, height, width)` or sequences as `(batch, seq, feat)`
+
+```python
+
+seq = torch.randn(1, 32, 16)
+quantized, *_ = quantizer(seq)
+
+assert seq.shape == quantized.shape
+
+video_feats = torch.randn(1, 16, 10, 32, 32)
+quantized, *_ = quantizer(video_feats)
+
+assert video_feats.shape == quantized.shape
+
+```
+
 ## Citations
 
 ```bibtex
