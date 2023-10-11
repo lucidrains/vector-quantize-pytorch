@@ -84,15 +84,18 @@ class LFQ(Module):
 
         # some assert validations
 
-        assert exists(dim) or exists(codebook_size)
         assert not exists(codebook_size) or log2(codebook_size).is_integer()
 
         codebook_size = default(codebook_size, 2 ** dim)
-        dim = default(dim, int(log2(codebook_size)))
+        codebook_dim = int(log2(codebook_size))
 
-        assert (2 ** dim) == codebook_size, f'2 ^ dimension ({dim}) must be equal to the codebook size ({codebook_size})'
+        dim = default(dim, codebook_dim)
+
+        self.project_in = nn.Linear(dim, codebook_dim) if dim != codebook_dim else nn.Identity()
+        self.project_out = nn.Linear(codebook_dim, dim) if dim != codebook_dim else nn.Identity()
 
         self.dim = dim
+        self.codebook_dim = codebook_dim
 
         # entropy aux loss related weights
 
@@ -103,7 +106,11 @@ class LFQ(Module):
 
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
 
-    def indices_to_codes(self, indices):
+    def indices_to_codes(
+        self,
+        indices,
+        project_out = True
+    ):
         is_img_or_video = indices.ndim >= 3
 
         # rearrange if image or video into (batch, seq, dimension)
@@ -113,7 +120,13 @@ class LFQ(Module):
 
         # indices to codes, which are bits of either -1 or 1
 
-        codes = decimal_to_bits(indices, self.dim)
+        codes = decimal_to_bits(indices, self.codebook_dim)
+
+        # whether to project codes out to original dimensions
+        # if the input feature dimensions were not log2(codebook size)
+
+        if project_out:
+            codes = self.project_out(codes)
 
         # rearrange codes back to original shape
 
@@ -145,6 +158,8 @@ class LFQ(Module):
 
         assert x.shape[-1] == self.dim
 
+        x = self.project_in(x)
+
         # quantize by eq 3.
 
         greater_than_zero = x > 0
@@ -162,7 +177,7 @@ class LFQ(Module):
 
         # calculate indices
 
-        indices = bits_to_decimal(x, self.dim)
+        indices = bits_to_decimal(x, self.codebook_dim)
 
         # entropy aux loss
 
@@ -183,6 +198,10 @@ class LFQ(Module):
             entropy_aux_loss = self.zero
 
         entropy_aux_loss = entropy_aux_loss * self.entropy_loss_weight
+
+        # project out to feature dimension if needed
+
+        x = self.project_out(x)
 
         # reconstitute image or video dimensions
 

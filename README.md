@@ -302,8 +302,8 @@ from vector_quantize_pytorch import LFQ
 # if both specified, will be validated against each other
 
 quantizer = LFQ(
-    dim = 16,                   # this is the input feature dimension, but also the log2(codebook_size)
-    codebook_size = 2 ** 16,    # correspondingly, this would be 2 ^ dim - since each scalar in the feature dimension is a binary latent
+    codebook_size = 65536,      # codebook size, must be a power of 2
+    dim = 16,                   # this is the input feature dimension, defaults to log2(codebook_size) if not defined
     entropy_loss_weight = 0.1,  # how much weight to place on entropy loss
     diversity_gamma = 1.        # within entropy loss, how much weight to give to diversity of codes, taken from https://arxiv.org/abs/1911.05894
 )
