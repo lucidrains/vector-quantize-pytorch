@@ -53,7 +53,8 @@ class LFQ(Module):
         dim = None,
         codebook_size = None,
         entropy_loss_weight = 0.1,
-        diversity_gamma = 2.5
+        diversity_gamma = 2.5,
+        straight_through_activation = nn.Tanh()
     ):
         super().__init__()
 
@@ -72,6 +73,10 @@ class LFQ(Module):
 
         self.dim = dim
         self.codebook_dim = codebook_dim
+
+        # straight through activation
+
+        self.activation = straight_through_activation
 
         # entropy aux loss related weights
 
@@ -140,7 +145,7 @@ class LFQ(Module):
         # use straight-through gradients with tanh if training
 
         if self.training:
-            x = torch.tanh(x * inv_temperature)
+            x = self.activation(x * inv_temperature)
             x = x - x.detach() + quantized
         else:
             x = quantized
