@@ -38,36 +38,11 @@ def unpack_one(t, ps, pattern):
 
 # entropy
 
-def binary_entropy(prob):
-    return -prob * log(prob) - (1 - prob) * log(1 - prob)
-
-# tensor helpers
-
 def log(t, eps = 1e-20):
     return t.clamp(min = eps).log()
 
-# convert to bit representations and back
-
-def decimal_to_bits(x, bits):
-    device = x.device
-
-    x = x.int()
-
-    mask = 2 ** torch.arange(bits - 1, -1, -1, device = device)
-    x = rearrange(x, 'b n -> b n 1')
-
-    bits = ((x & mask) != 0).float()
-    bits = rearrange(bits, 'b n d -> b n d')
-    return bits * 2 - 1
-
-def bits_to_decimal(x, bits):
-    device = x.device
-
-    x = (x > 0).int()
-
-    mask = 2 ** torch.arange(bits - 1, -1, -1, device = device, dtype = torch.int32)
-    dec = reduce(x * mask, 'b n d -> b n', 'sum')
-    return dec
+def binary_entropy(prob):
+    return -prob * log(prob) - (1 - prob) * log(1 - prob)
 
 # class
 
@@ -105,6 +80,7 @@ class LFQ(Module):
 
         # for no auxiliary loss, during inference
 
+        self.register_buffer('mask', 2 ** torch.arange(codebook_dim - 1, -1, -1))
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
 
     def indices_to_codes(
@@ -114,14 +90,10 @@ class LFQ(Module):
     ):
         is_img_or_video = indices.ndim >= 3
 
-        # rearrange if image or video into (batch, seq, dimension)
-
-        if is_img_or_video:
-            indices, ps = pack_one(indices, 'b *')
-
         # indices to codes, which are bits of either -1 or 1
 
-        codes = decimal_to_bits(indices, self.codebook_dim)
+        bits = ((indices[..., None].int() & self.mask) != 0).float()
+        codes = bits * 2 - 1
 
         # whether to project codes out to original dimensions
         # if the input feature dimensions were not log2(codebook size)
@@ -132,7 +104,6 @@ class LFQ(Module):
         # rearrange codes back to original shape
 
         if is_img_or_video:
-            codes = unpack_one(codes, ps, 'b * d')
             codes = rearrange(codes, 'b ... d -> b d ...')
 
         return codes
@@ -163,10 +134,8 @@ class LFQ(Module):
 
         # quantize by eq 3.
 
-        greater_than_zero = x > 0
         ones = torch.ones_like(x)
-
-        quantized = torch.where(greater_than_zero, ones, -ones)
+        quantized = torch.where(x > 0, ones, -ones)
 
         # use straight-through gradients with tanh if training
 
@@ -178,7 +147,7 @@ class LFQ(Module):
 
         # calculate indices
 
-        indices = bits_to_decimal(x, self.codebook_dim)
+        indices = reduce((x > 0).int() * self.mask.int(), 'b n d -> b n', 'sum')
 
         # entropy aux loss
 
