@@ -53,7 +53,8 @@ class LFQ(Module):
         dim = None,
         codebook_size = None,
         entropy_loss_weight = 0.1,
-        diversity_gamma = 2.5
+        diversity_gamma = 2.5,
+        straight_through_activation = nn.Tanh()
     ):
         super().__init__()
 
@@ -72,6 +73,10 @@ class LFQ(Module):
 
         self.dim = dim
         self.codebook_dim = codebook_dim
+
+        # straight through activation
+
+        self.activation = straight_through_activation
 
         # entropy aux loss related weights
 
@@ -122,7 +127,7 @@ class LFQ(Module):
 
         is_img_or_video = x.ndim >= 4
 
-        # rearrange if image or video into (batch, seq, dimension)
+        # standardize image or video into (batch, seq, dimension)
 
         if is_img_or_video:
             x = rearrange(x, 'b d ... -> b ... d')
@@ -137,10 +142,10 @@ class LFQ(Module):
         ones = torch.ones_like(x)
         quantized = torch.where(x > 0, ones, -ones)
 
-        # use straight-through gradients with tanh if training
+        # use straight-through gradients with tanh (or custom activation fn) if training
 
         if self.training:
-            x = torch.tanh(x * inv_temperature)
+            x = self.activation(x * inv_temperature)
             x = x - x.detach() + quantized
         else:
             x = quantized
@@ -180,7 +185,5 @@ class LFQ(Module):
             x = rearrange(x, 'b ... d -> b d ...')
 
             indices = unpack_one(indices, ps, 'b *')
-
-        # bits to decimal for the codebook indices
 
         return Return(x, indices, entropy_aux_loss)
