@@ -288,9 +288,11 @@ assert torch.all(xhat == quantizer.indices_to_codes(indices))
 
 <img src="./lfq.png" width="450px"></img>
 
-The research team behind <a href="https://arxiv.org/abs/2212.05199">MagViT</a> has released new SOTA results for generative video modeling. The core change between v1 and v2 of their architecture is using a new type of quantization, which is essentially the same as <a href="https://arxiv.org/abs/2309.15505">Finite Scalar Quantization</a> but with 2 levels (binary latents). (FSQ would be a generalization of this technique). However, this team chose to use extra entropy regularizations to promote codebook usage.
+The research team behind <a href="https://arxiv.org/abs/2212.05199">MagViT</a> has released new SOTA results for generative video modeling. A core change between v1 and v2 include a new type of quantization, look-up free quantization (LFQ), which eliminates the codebook and embedding lookup entirely.
 
-Finite scalar quantization and follow up papers will likely lead to further game changing results in generative modeling.
+This paper presents a simple LFQ quantizer of using independent binary latents. Other implementations of LFQ exist. However, the team shows that MAGVIT-v2 with LFQ significantly improves on the ImageNet benchmark.
+
+Developing a more advanced method of LFQ quantization without codebook-lookup could revolutionize generative modeling.
 
 You can use it simply as follows. Will be dogfooded at <a href="https://github.com/lucidrains/magvit2-pytorch">MagViT2 pytorch port</a>
 
