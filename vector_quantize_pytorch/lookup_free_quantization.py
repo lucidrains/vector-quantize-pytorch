@@ -54,7 +54,9 @@ class LFQ(Module):
         codebook_size = None,
         entropy_loss_weight = 0.1,
         diversity_gamma = 2.5,
-        straight_through_activation = nn.Tanh()
+        straight_through_activation = nn.Tanh(),
+        num_codebooks = 1,
+        keep_num_codebooks_dim = None
     ):
         super().__init__()
 
@@ -66,13 +68,19 @@ class LFQ(Module):
         codebook_size = default(codebook_size, lambda: 2 ** dim)
         codebook_dim = int(log2(codebook_size))
 
-        dim = default(dim, codebook_dim)
+        codebook_dims = codebook_dim * num_codebooks
+        dim = default(dim, codebook_dims)
 
-        self.project_in = nn.Linear(dim, codebook_dim) if dim != codebook_dim else nn.Identity()
-        self.project_out = nn.Linear(codebook_dim, dim) if dim != codebook_dim else nn.Identity()
+        self.project_in = nn.Linear(dim, codebook_dims) if dim != codebook_dims else nn.Identity()
+        self.project_out = nn.Linear(codebook_dims, dim) if dim != codebook_dims else nn.Identity()
 
         self.dim = dim
         self.codebook_dim = codebook_dim
+        self.num_codebooks = num_codebooks
+
+        keep_num_codebooks_dim = default(keep_num_codebooks_dim, num_codebooks > 1)
+        assert not (num_codebooks > 1 and not keep_num_codebooks_dim)
+        self.keep_num_codebooks_dim = keep_num_codebooks_dim
 
         # straight through activation
 
@@ -95,10 +103,15 @@ class LFQ(Module):
     ):
         is_img_or_video = indices.ndim >= 3
 
+        if not self.keep_num_codebooks_dim:
+            indices = rearrange(indices, '... -> ... 1')
+
         # indices to codes, which are bits of either -1 or 1
 
         bits = ((indices[..., None].int() & self.mask) != 0).float()
         codes = bits * 2 - 1
+
+        codes = rearrange(codes, '... c d -> ... (c d)')
 
         # whether to project codes out to original dimensions
         # if the input feature dimensions were not log2(codebook size)
@@ -123,6 +136,7 @@ class LFQ(Module):
         b - batch
         n - sequence (or flattened spatial dimensions)
         d - feature dimension, which is also log2(codebook size)
+        c - number of codebook dim
         """
 
         is_img_or_video = x.ndim >= 4
@@ -133,9 +147,13 @@ class LFQ(Module):
             x = rearrange(x, 'b d ... -> b ... d')
             x, ps = pack_one(x, 'b * d')
 
-        assert x.shape[-1] == self.dim
+        assert x.shape[-1] == self.dim, f'expected dimension of {self.dim} but received {x.shape[-1]}'
 
         x = self.project_in(x)
+
+        # split out number of codebooks
+
+        x = rearrange(x, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
         # quantize by eq 3.
 
@@ -152,7 +170,7 @@ class LFQ(Module):
 
         # calculate indices
 
-        indices = reduce((x > 0).int() * self.mask.int(), 'b n d -> b n', 'sum')
+        indices = reduce((x > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
 
         # entropy aux loss
 
@@ -161,7 +179,7 @@ class LFQ(Module):
 
             bit_entropy = binary_entropy(prob).mean()
 
-            avg_prob = reduce(prob, 'b n d -> b d', 'mean')
+            avg_prob = reduce(prob, 'b n c d -> b c d', 'mean')
             codebook_entropy = binary_entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each bit, so each scalar commits to one latent binary bit or the other
@@ -174,6 +192,10 @@ class LFQ(Module):
 
         entropy_aux_loss = entropy_aux_loss * self.entropy_loss_weight
 
+        # merge back codebook dim
+
+        x = rearrange(x, 'b n c d -> b n (c d)')
+
         # project out to feature dimension if needed
 
         x = self.project_out(x)
@@ -184,6 +206,11 @@ class LFQ(Module):
             x = unpack_one(x, ps, 'b * d')
             x = rearrange(x, 'b ... d -> b d ...')
 
-            indices = unpack_one(indices, ps, 'b *')
+            indices = unpack_one(indices, ps, 'b * c')
+
+        # whether to remove single codebook dim
+
+        if not self.keep_num_codebooks_dim:
+            indices = rearrange(indices, '... 1 -> ...')
 
         return Return(x, indices, entropy_aux_loss)

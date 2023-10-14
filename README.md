@@ -336,6 +336,28 @@ assert video_feats.shape == quantized.shape
 
 ```
 
+Or support multiple codebooks
+
+```python
+import torch
+from vector_quantize_pytorch import LFQ
+
+quantizer = LFQ(
+    codebook_size = 4096,
+    dim = 16,
+    num_codebooks = 4  # 4 codebooks, total codebook dimension is log2(4096) * 4
+)
+
+image_feats = torch.randn(1, 16, 32, 32)
+
+quantized, indices, entropy_aux_loss = quantizer(image_feats)
+
+# (1, 16, 32, 32), (1, 32, 32, 4), (1,)
+
+assert image_feats.shape == quantized.shape
+assert (quantized == quantizer.indices_to_codes(indices)).all()
+```
+
 ## Citations
 
 ```bibtex
