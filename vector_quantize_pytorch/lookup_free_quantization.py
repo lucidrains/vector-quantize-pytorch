@@ -11,6 +11,7 @@ from collections import namedtuple
 
 import torch
 from torch import nn, Tensor
+import torch.nn.functional as F
 from torch.nn import Module
 
 from einops import rearrange, reduce, pack, unpack
@@ -53,8 +54,9 @@ class LFQ(Module):
         dim = None,
         codebook_size = None,
         entropy_loss_weight = 0.1,
+        commitment_loss_weight = 1.,
         diversity_gamma = 2.5,
-        straight_through_activation = nn.Tanh(),
+        straight_through_activation = nn.Identity(),
         num_codebooks = 1,
         keep_num_codebooks_dim = None
     ):
@@ -90,6 +92,10 @@ class LFQ(Module):
 
         self.diversity_gamma = diversity_gamma
         self.entropy_loss_weight = entropy_loss_weight
+
+        # commitment loss
+
+        self.commitment_loss_weight = commitment_loss_weight
 
         # for no auxiliary loss, during inference
 
@@ -157,6 +163,8 @@ class LFQ(Module):
 
         # quantize by eq 3.
 
+        original_input = x
+
         ones = torch.ones_like(x)
         quantized = torch.where(x > 0, ones, -ones)
 
@@ -190,7 +198,12 @@ class LFQ(Module):
             # if not training, just return dummy 0
             entropy_aux_loss = self.zero
 
-        entropy_aux_loss = entropy_aux_loss * self.entropy_loss_weight
+        # commit loss
+
+        if self.training:
+            commit_loss = F.mse_loss(original_input, quantized.detach())
+        else:
+            commit_loss = self.zero
 
         # merge back codebook dim
 
@@ -212,5 +225,9 @@ class LFQ(Module):
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, '... 1 -> ...')
+
+        # complete aux loss
+
+        aux_loss = entropy_aux_loss * self.entropy_loss_weight + commit_loss * self.commitment_loss_weight
 
         return Return(x, indices, entropy_aux_loss)
