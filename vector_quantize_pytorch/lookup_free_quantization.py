@@ -187,7 +187,7 @@ class LFQ(Module):
         # use straight-through gradients with tanh (or custom activation fn) if training
 
         if self.training:
-            x = self.activation(x * inv_temperature)
+            x = self.activation(x)
             x = x - x.detach() + quantized
         else:
             x = quantized
