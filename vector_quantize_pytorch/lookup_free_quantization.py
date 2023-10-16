@@ -248,4 +248,4 @@ class LFQ(Module):
 
         aux_loss = entropy_aux_loss * self.entropy_loss_weight + commit_loss * self.commitment_loss_weight
 
-        return Return(x, indices, entropy_aux_loss)
+        return Return(x, indices, aux_loss)
