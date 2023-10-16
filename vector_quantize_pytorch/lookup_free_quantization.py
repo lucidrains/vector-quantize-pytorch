@@ -10,7 +10,7 @@ from math import log2, ceil
 from collections import namedtuple
 
 import torch
-from torch import nn, Tensor
+from torch import nn, Tensor, einsum
 import torch.nn.functional as F
 from torch.nn import Module
 
@@ -37,13 +37,21 @@ def pack_one(t, pattern):
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
 
+# distance
+
+def euclidean_distance_squared(x, y):
+    x2 = reduce(x ** 2, '... n d -> ... n', 'sum')
+    y2 = reduce(y ** 2, 'n d -> n', 'sum')
+    xy = einsum('... i d, j d -> ... i j', x, y) * -2
+    return rearrange(x2, '... i -> ... i 1') + y2 + xy
+
 # entropy
 
 def log(t, eps = 1e-20):
     return t.clamp(min = eps).log()
 
-def binary_entropy(prob):
-    return -prob * log(prob) - (1 - prob) * log(1 - prob)
+def entropy(prob):
+    return -prob * log(prob)
 
 # class
 
@@ -101,6 +109,14 @@ class LFQ(Module):
 
         self.register_buffer('mask', 2 ** torch.arange(codebook_dim - 1, -1, -1))
         self.register_buffer('zero', torch.zeros(1,), persistent = False)
+
+        # codes
+
+        all_codes = torch.arange(codebook_size)
+        bits = ((all_codes[..., None].int() & self.mask) != 0).float()
+        codebook = bits * 2 - 1
+
+        self.register_buffer('codebook', codebook, persistent = False)
 
     def indices_to_codes(
         self,
@@ -183,17 +199,19 @@ class LFQ(Module):
         # entropy aux loss
 
         if self.training:
-            prob = (x * inv_temperature).sigmoid()
+            distance = euclidean_distance_squared(original_input, self.codebook)
 
-            bit_entropy = binary_entropy(prob).mean()
+            prob = (-distance * inv_temperature).softmax(dim = -1)
+
+            per_sample_entropy = entropy(prob).mean()
 
             avg_prob = reduce(prob, 'b n c d -> b c d', 'mean')
-            codebook_entropy = binary_entropy(avg_prob).mean()
+            codebook_entropy = entropy(avg_prob).mean()
 
-            # 1. entropy will be nudged to be low for each bit, so each scalar commits to one latent binary bit or the other
-            # 2. codebook entropy will be nudged to be high, to encourage all codes to be uniformly used
+            # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
+            # 2. codebook entropy will be nudged to be high, to encourage all codes to be uniformly used within the batch
 
-            entropy_aux_loss = bit_entropy - self.diversity_gamma * codebook_entropy
+            entropy_aux_loss = per_sample_entropy - self.diversity_gamma * codebook_entropy
         else:
             # if not training, just return dummy 0
             entropy_aux_loss = self.zero
