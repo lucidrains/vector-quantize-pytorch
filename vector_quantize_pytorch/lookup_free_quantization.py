@@ -20,6 +20,8 @@ from einops import rearrange, reduce, pack, unpack
 
 Return = namedtuple('Return', ['quantized', 'indices', 'entropy_aux_loss'])
 
+LossBreakdown = namedtuple('LossBreakdown', ['per_sample_entropy', 'batch_entropy', 'commitment'])
+
 # helper functions
 
 def exists(v):
@@ -151,7 +153,8 @@ class LFQ(Module):
     def forward(
         self,
         x,
-        inv_temperature = 1.
+        inv_temperature = 1.,
+        return_loss_breakdown = False
     ):
         """
         einstein notation
@@ -214,7 +217,7 @@ class LFQ(Module):
             entropy_aux_loss = per_sample_entropy - self.diversity_gamma * codebook_entropy
         else:
             # if not training, just return dummy 0
-            entropy_aux_loss = self.zero
+            entropy_aux_loss = per_sample_entropy = codebook_entropy = self.zero
 
         # commit loss
 
@@ -248,4 +251,9 @@ class LFQ(Module):
 
         aux_loss = entropy_aux_loss * self.entropy_loss_weight + commit_loss * self.commitment_loss_weight
 
-        return Return(x, indices, aux_loss)
+        ret = Return(x, indices, aux_loss)
+
+        if not return_loss_breakdown:
+            return ret
+
+        return ret, LossBreakdown(per_sample_entropy, codebook_entropy, commit_loss)
