@@ -132,7 +132,7 @@ class LFQ(Module):
 
         # indices to codes, which are bits of either -1 or 1
 
-        bits = ((indices[..., None].int() & self.mask) != 0).float()
+        bits = ((indices[..., None].int() & self.mask) != 0).to(self.project_out.weight.dtype)
         codes = bits * 2 - 1
 
         codes = rearrange(codes, '... c d -> ... (c d)')
