@@ -129,8 +129,8 @@ class LFQ(Module):
         indices,
         project_out = True
     ):
-        is_img_or_video = indices.ndim >= 3
-
+        is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
+        print(is_img_or_video)
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, '... -> ... 1')
 
