@@ -120,6 +120,10 @@ class LFQ(Module):
 
         self.register_buffer('codebook', codebook, persistent = False)
 
+    @property
+    def dtype(self):
+        return self.codebook.dtype
+
     def indices_to_codes(
         self,
         indices,
@@ -132,7 +136,7 @@ class LFQ(Module):
 
         # indices to codes, which are bits of either -1 or 1
 
-        bits = ((indices[..., None].int() & self.mask) != 0).to(self.project_out.weight.dtype)
+        bits = ((indices[..., None].int() & self.mask) != 0).to(self.dtype)
         codes = bits * 2 - 1
 
         codes = rearrange(codes, '... c d -> ... (c d)')
