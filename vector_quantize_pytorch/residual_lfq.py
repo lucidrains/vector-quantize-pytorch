@@ -32,8 +32,6 @@ class ResidualLFQ(Module):
         dim,
         num_quantizers,
         codebook_size,
-        shared_codebook = False,
-        heads = 1,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
