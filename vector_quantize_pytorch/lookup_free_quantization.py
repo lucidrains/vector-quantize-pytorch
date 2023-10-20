@@ -145,6 +145,7 @@ class LFQ(Module):
         # indices to codes, which are bits of either -1 or 1
 
         bits = ((indices[..., None].int() & self.mask) != 0).to(self.dtype)
+
         codes = self.bits_to_codes(bits)
 
         codes = rearrange(codes, '... c d -> ... (c d)')
