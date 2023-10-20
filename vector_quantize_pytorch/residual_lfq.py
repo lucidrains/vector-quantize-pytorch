@@ -143,7 +143,10 @@ class ResidualLFQ(Module):
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
+            # make this work for any input shape (seq, audio, video)
+
             null_indices_shape = (x.shape[0], *x.shape[-2:])
+
             null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
             null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
 
@@ -161,11 +164,6 @@ class ResidualLFQ(Module):
             residual = residual - quantized.detach()
             quantized_out = quantized_out + quantized
 
-            if return_loss:
-                ce_loss = rest[0]
-                ce_losses.append(ce_loss)
-                continue
-
             embed_indices, loss = rest
 
             all_indices.append(embed_indices)
@@ -174,11 +172,6 @@ class ResidualLFQ(Module):
         # project out, if needed
 
         quantized_out = self.project_out(quantized_out)
-
-        # whether to early return the cross entropy loss
-
-        if return_loss:
-            return quantized_out, sum(ce_losses)
 
         # stack all losses and indices
 
