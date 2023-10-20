@@ -196,8 +196,8 @@ class LFQ(Module):
 
         original_input = x
 
-        ones = torch.ones_like(x)
-        quantized = torch.where(x > 0, ones, -ones)
+        codebook_value = torch.ones_like(x) * self.codebook_scale
+        quantized = torch.where(x > 0, codebook_value, -codebook_value)
 
         # use straight-through gradients with tanh (or custom activation fn) if training
 
