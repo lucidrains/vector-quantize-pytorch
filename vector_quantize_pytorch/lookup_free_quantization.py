@@ -68,7 +68,8 @@ class LFQ(Module):
         diversity_gamma = 2.5,
         straight_through_activation = nn.Identity(),
         num_codebooks = 1,
-        keep_num_codebooks_dim = None
+        keep_num_codebooks_dim = None,
+        codebook_scale = 1.  # for residual LFQ, codebook scaled down by 2x at each layer
     ):
         super().__init__()
 
@@ -103,6 +104,10 @@ class LFQ(Module):
         self.diversity_gamma = diversity_gamma
         self.entropy_loss_weight = entropy_loss_weight
 
+        # codebook scale
+
+        self.codebook_scale = codebook_scale
+
         # commitment loss
 
         self.commitment_loss_weight = commitment_loss_weight
@@ -116,9 +121,12 @@ class LFQ(Module):
 
         all_codes = torch.arange(codebook_size)
         bits = ((all_codes[..., None].int() & self.mask) != 0).float()
-        codebook = bits * 2 - 1
+        codebook = self.bits_to_codes(bits)
 
         self.register_buffer('codebook', codebook, persistent = False)
+
+    def bits_to_codes(self, bits):
+        return bits * self.codebook_scale * 2 - self.codebook_scale
 
     @property
     def dtype(self):
@@ -137,7 +145,7 @@ class LFQ(Module):
         # indices to codes, which are bits of either -1 or 1
 
         bits = ((indices[..., None].int() & self.mask) != 0).to(self.dtype)
-        codes = bits * 2 - 1
+        codes = self.bits_to_codes(bits)
 
         codes = rearrange(codes, '... c d -> ... (c d)')
 
