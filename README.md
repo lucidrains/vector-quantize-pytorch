@@ -358,6 +358,35 @@ assert image_feats.shape == quantized.shape
 assert (quantized == quantizer.indices_to_codes(indices)).all()
 ```
 
+An improvised Residual LFQ, to see if it can lead to an improvement for audio compression.
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualLFQ
+
+residual_lfq = ResidualLFQ(
+    dim = 256,
+    codebook_size = 256,
+    num_quantizers = 8
+)
+
+x = torch.randn(1, 1024, 256)
+
+residual_lfq.eval()
+
+quantized, indices, commit_loss = residual_lfq(x)
+
+# (1, 1024, 256), (1, 1024, 8), (8)
+# (batch, seq, dim), (batch, seq, quantizers), (quantizers)
+
+quantized_out = residual_lfq.get_codes_from_indices(indices)
+
+# (8, 1, 1024, 8)
+# (residual layers, batch, seq, quantizers)
+
+assert torch.all(quantized == residual_lfq.project_out(quantized_out.sum(dim = 0)))
+```
+
 ## Citations
 
 ```bibtex

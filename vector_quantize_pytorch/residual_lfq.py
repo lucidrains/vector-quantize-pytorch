@@ -1,4 +1,5 @@
 from math import log2
+from random import randrange
 from functools import partial
 
 import torch
@@ -113,11 +114,9 @@ class ResidualLFQ(Module):
     def forward(
         self,
         x,
-        indices = None,
-        return_all_codes = False,
-        sample_codebook_temp = None
+        return_all_codes = False
     ):
-        num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
+        num_quant, quant_dropout_multiple_of, device = self.num_quantizers, self.quantize_dropout_multiple_of, x.device
 
         x = self.project_in(x)
 
@@ -127,11 +126,7 @@ class ResidualLFQ(Module):
         all_losses = []
         all_indices = []
 
-        if return_loss:
-            assert not torch.any(indices == -1), 'some of the residual vq indices were dropped out. please use indices derived when the module is in eval mode to derive cross entropy loss'
-            ce_losses = []
-
-        should_quantize_dropout = self.training and self.quantize_dropout and not return_loss
+        should_quantize_dropout = self.training and self.quantize_dropout
 
         # sample a layer index at which to dropout further residual quantization
         # also prepare null indices and loss
@@ -142,12 +137,8 @@ class ResidualLFQ(Module):
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
-            # make this work for any input shape (seq, audio, video)
-
-            null_indices_shape = (x.shape[0], *x.shape[-2:])
-
-            null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
-            null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
+            null_indices = torch.full(x.shape[:2], -1., device = device, dtype = torch.long)
+            null_loss = torch.tensor(0., device = device, dtype = x.dtype)
 
         # go through the layers
 
@@ -159,14 +150,12 @@ class ResidualLFQ(Module):
                     all_losses.append(null_loss)
                     continue
 
-                quantized, *rest = layer(residual)
+                quantized, indices, loss = layer(residual)
 
                 residual = residual - quantized.detach()
                 quantized_out = quantized_out + quantized
 
-                embed_indices, loss = rest
-
-                all_indices.append(embed_indices)
+                all_indices.append(indices)
                 all_losses.append(loss)
 
         # project out, if needed
@@ -179,11 +168,13 @@ class ResidualLFQ(Module):
 
         ret = (quantized_out, all_indices, all_losses)
 
-        if return_all_codes:
-            # whether to return all codes from all codebooks across layers
-            all_codes = self.get_codes_from_indices(all_indices)
+        if not return_all_codes:
+            return ret
 
-            # will return all codes in shape (quantizer, batch, sequence length, codebook dimension)
-            ret = (*ret, all_codes)
+        # whether to return all codes from all codebooks across layers
 
-        return ret
+        all_codes = self.get_codes_from_indices(all_indices)
+
+        # will return all codes in shape (quantizer, batch, sequence length, codebook dimension)
+
+        return (*ret, all_codes)
