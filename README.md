@@ -1,4 +1,4 @@
-<img src="./vq.png" width="500px"></img>
+<img src="./images/vq.png" width="500px"></img>
 
 ## Vector Quantization - Pytorch
 
@@ -253,7 +253,7 @@ This repository should also automatically synchronizing the codebooks in a multi
 
 ### Finite Scalar Quantization
 
-<img src="./fsq.png" width="500px"></img>
+<img src="./images/fsq.png" width="500px"></img>
 
 |                  | VQ | FSQ |
 |------------------|----|-----|
@@ -286,7 +286,7 @@ assert torch.all(xhat == quantizer.indices_to_codes(indices))
 
 ### Lookup Free Quantization
 
-<img src="./lfq.png" width="450px"></img>
+<img src="./images/lfq.png" width="450px"></img>
 
 The research team behind <a href="https://arxiv.org/abs/2212.05199">MagViT</a> has released new SOTA results for generative video modeling. A core change between v1 and v2 include a new type of quantization, look-up free quantization (LFQ), which eliminates the codebook and embedding lookup entirely.
 
