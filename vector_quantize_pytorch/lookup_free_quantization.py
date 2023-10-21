@@ -115,7 +115,7 @@ class LFQ(Module):
         # for no auxiliary loss, during inference
 
         self.register_buffer('mask', 2 ** torch.arange(codebook_dim - 1, -1, -1))
-        self.register_buffer('zero', torch.zeros(1,), persistent = False)
+        self.register_buffer('zero', torch.tensor(0.), persistent = False)
 
         # codes
 
