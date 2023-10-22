@@ -379,12 +379,12 @@ quantized, indices, commit_loss = residual_lfq(x)
 # (1, 1024, 256), (1, 1024, 8), (8)
 # (batch, seq, dim), (batch, seq, quantizers), (quantizers)
 
-quantized_out = residual_lfq.get_codes_from_indices(indices)
+quantized_out = residual_lfq.get_output_from_indices(indices)
 
 # (8, 1, 1024, 8)
 # (residual layers, batch, seq, quantizers)
 
-assert torch.all(quantized == residual_lfq.project_out(quantized_out.sum(dim = 0)))
+assert torch.all(quantized == quantized_out)
 ```
 
 ## Citations
