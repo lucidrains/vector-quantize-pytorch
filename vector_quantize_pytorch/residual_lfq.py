@@ -10,7 +10,7 @@ from torch.cuda.amp import autocast
 
 from vector_quantize_pytorch.lookup_free_quantization import LFQ
 
-from einops import rearrange, repeat, pack, unpack
+from einops import rearrange, repeat, reduce, pack, unpack
 
 # helper functions
 
@@ -110,6 +110,11 @@ class ResidualLFQ(Module):
         all_codes, = unpack(all_codes, ps, 'q b * d')
 
         return all_codes
+
+    def get_output_from_indices(self, indices):
+        codes = self.get_codes_from_indices(indices)
+        codes_summed = reduce(codes, 'q ... -> ...', 'sum')
+        return self.project_out(codes_summed)
 
     def forward(
         self,

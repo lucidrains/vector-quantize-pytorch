@@ -8,7 +8,7 @@ from torch import nn
 import torch.nn.functional as F
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
-from einops import rearrange, repeat, pack, unpack
+from einops import rearrange, repeat, reduce, pack, unpack
 
 # helper functions
 
@@ -112,6 +112,11 @@ class ResidualVQ(nn.Module):
         all_codes, = unpack(all_codes, ps, 'q b * d')
 
         return all_codes
+
+    def get_output_from_indices(self, indices):
+        codes = self.get_codes_from_indices(indices)
+        codes_summed = reduce(codes, 'q ... -> ...', 'sum')
+        return self.project_out(codes_summed)
 
     def forward(
         self,

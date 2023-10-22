@@ -834,6 +834,10 @@ class VectorQuantize(nn.Module):
         codes = unpack_one(codes, ps, 'b * d')
         return codes
 
+    def get_output_from_indices(self, indices):
+        codes = self.get_codes_from_indices(indices)
+        return self.project_out(codes)
+
     def forward(
         self,
         x,
@@ -964,7 +968,7 @@ class VectorQuantize(nn.Module):
             embed_ind = rearrange(embed_ind, 'b (h w) ... -> b h w ...', h = height, w = width)
 
         if only_one:
-            embed_ind = rearrange(embed_ind, 'b 1 -> b')
+            embed_ind = rearrange(embed_ind, 'b 1 ... -> b ...')
 
         # aggregate loss
 
