@@ -183,3 +183,76 @@ class ResidualLFQ(Module):
         # will return all codes in shape (quantizer, batch, sequence length, codebook dimension)
 
         return (*ret, all_codes)
+
+# grouped residual lfq
+
+class GroupedResidualLFQ(Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        groups = 1,
+        accept_image_fmap = False,
+        **kwargs
+    ):
+        super().__init__()
+        self.dim = dim
+        self.groups = groups
+        assert (dim % groups) == 0
+        dim_per_group = dim // groups
+
+        self.accept_image_fmap = accept_image_fmap
+
+        self.rvqs = nn.ModuleList([])
+
+        for _ in range(groups):
+            self.rvqs.append(ResidualLFQ(
+                dim = dim_per_group,
+                **kwargs
+            ))
+
+    @property
+    def codebooks(self):
+        return torch.stack(tuple(rvq.codebooks for rvq in self.rvqs))
+
+    @property
+    def split_dim(self):
+        return 1 if self.accept_image_fmap else -1
+
+    def get_codes_from_indices(self, indices):
+        codes = tuple(rvq.get_codes_from_indices(chunk_indices) for rvq, chunk_indices in zip(self.rvqs, indices))
+        return torch.stack(codes)
+
+    def get_output_from_indices(self, indices):
+        outputs = tuple(rvq.get_output_from_indices(chunk_indices) for rvq, chunk_indices in zip(self.rvqs, indices))
+        return torch.cat(outputs, dim = self.split_dim)
+
+    def forward(
+        self,
+        x,
+        return_all_codes = False
+    ):
+        shape, split_dim = x.shape, self.split_dim
+        assert shape[split_dim] == self.dim
+
+        # split the feature dimension into groups
+
+        x = x.chunk(self.groups, dim = split_dim)
+
+        forward_kwargs = dict(return_all_codes = return_all_codes)
+
+        # invoke residual vq on each group
+
+        out = tuple(rvq(chunk, **forward_kwargs) for rvq, chunk in zip(self.rvqs, x))
+        out = tuple(zip(*out))
+
+        # otherwise, get all the zipped outputs and combine them
+
+        quantized, all_indices, commit_losses, *maybe_all_codes = out
+
+        quantized = torch.cat(quantized, dim = split_dim)
+        all_indices = torch.stack(all_indices)
+        commit_losses = torch.stack(commit_losses)
+
+        ret = (quantized, all_indices, commit_losses, *maybe_all_codes)
+        return ret
