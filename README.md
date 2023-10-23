@@ -99,7 +99,7 @@ x = torch.randn(1, 1024, 256)
 
 quantized, indices, commit_loss = residual_vq(x)
 
-# (1, 1024, 256), (1, 1024, 8), (1, 8)
+# (1, 1024, 256), (2, 1, 1024, 8), (2, 1, 8)
 # (batch, seq, dim), (groups, batch, seq, quantizer), (groups, batch, quantizer)
 
 ```
@@ -191,6 +191,7 @@ You can use this feature by simply setting the `orthogonal_reg_weight` to be gre
 ```python
 import torch
 from vector_quantize_pytorch import VectorQuantize
+
 vq = VectorQuantize(
     dim = 256,
     codebook_size = 256,
@@ -199,6 +200,7 @@ vq = VectorQuantize(
     orthogonal_reg_max_codes = 128,             # this would randomly sample from the codebook for the orthogonal regularization loss, for limiting memory usage
     orthogonal_reg_active_codes_only = False    # set this to True if you have a very large codebook, and would only like to enforce the loss on the activated codes per batch
 )
+
 img_fmap = torch.randn(1, 256, 32, 32)
 quantized, indices, loss = vq(img_fmap) # (1, 256, 32, 32), (1, 32, 32), (1,)
 # loss now contains the orthogonal regularization loss with the weight as assigned

@@ -240,9 +240,17 @@ class GroupedResidualVQ(nn.Module):
     def codebooks(self):
         return torch.stack(tuple(rvq.codebooks for rvq in self.rvqs))
 
+    @property
+    def split_dim(self):
+        return 1 if self.accept_image_fmap else -1
+
     def get_codes_from_indices(self, indices):
         codes = tuple(rvq.get_codes_from_indices(chunk_indices) for rvq, chunk_indices in zip(self.rvqs, indices))
         return torch.stack(codes)
+
+    def get_output_from_indices(self, indices):
+        outputs = tuple(rvq.get_output_from_indices(chunk_indices) for rvq, chunk_indices in zip(self.rvqs, indices))
+        return torch.cat(outputs, dim = self.split_dim)
 
     def forward(
         self,
@@ -251,8 +259,7 @@ class GroupedResidualVQ(nn.Module):
         return_all_codes = False,
         sample_codebook_temp = None
     ):
-        shape = x.shape
-        split_dim = 1 if self.accept_image_fmap else -1
+        shape, split_dim = x.shape, self.split_dim
         assert shape[split_dim] == self.dim
 
         # split the feature dimension into groups
