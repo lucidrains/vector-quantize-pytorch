@@ -10,6 +10,8 @@ import torch.nn as nn
 from torch.nn import Module
 from torch import Tensor, int32
 
+from einops import rearrange, pack, unpack
+
 # helper functions
 
 def exists(v):
@@ -20,6 +22,12 @@ def default(*args):
         if exists(arg):
             return arg
     return None
+
+def pack_one(t, pattern):
+    return pack([t], pattern)
+
+def unpack_one(t, ps, pattern):
+    return unpack(t, ps, pattern)[0]
 
 # tensor helpers
 
@@ -90,16 +98,37 @@ class FSQ(Module):
     ) -> Tensor:
         """Inverse of `codes_to_indices`."""
 
-        indices = indices.unsqueeze(-1)
+        is_img_or_video = indices.ndim >= 3
+
+        indices = rearrange(indices, '... -> ... 1')
         codes_non_centered = (indices // self._basis) % self._levels
         codes = self._scale_and_shift_inverse(codes_non_centered)
 
-        if not project_out:
-            return codes
+        if project_out:
+            codes = self.project_out(codes)
 
-        return self.project_out(codes)
+        if is_img_or_video:
+            codes = rearrange(codes, 'b ... d -> b d ...')
+
+        return codes
 
     def forward(self, z: Tensor) -> Tensor:
+        """
+        einstein notation
+        b - batch
+        n - sequence (or flattened spatial dimensions)
+        d - feature dimension, which is also log2(codebook size)
+        c - number of codebook dim
+        """
+
+        is_img_or_video = z.ndim >= 4
+
+        # standardize image or video into (batch, seq, dimension)
+
+        if is_img_or_video:
+            z = rearrange(z, 'b d ... -> b ... d')
+            z, ps = pack_one(z, 'b * d')
+
         assert z.shape[-1] == self.dim, f'expected dimension of {self.dim} but found dimension of {z.shape[-1]}'
 
         z = self.project_in(z)
@@ -108,5 +137,13 @@ class FSQ(Module):
         indices = self.codes_to_indices(codes)
 
         out = self.project_out(codes)
+
+        # reconstitute image or video dimensions
+
+        if is_img_or_video:
+            out = unpack_one(out, ps, 'b * d')
+            out = rearrange(out, 'b ... d -> b d ...')
+
+            indices = unpack_one(indices, ps, 'b *')
 
         return out, indices
