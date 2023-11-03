@@ -286,6 +286,36 @@ assert xhat.shape == x.shape
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
 ```
 
+An improvised Residual FSQ, for an attempt to improve audio encoding.
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualFSQ
+
+residual_fsq = ResidualFSQ(
+    dim = 256,
+    levels = [8, 5, 5, 3],
+    codebook_size = 256,
+    num_quantizers = 8
+)
+
+x = torch.randn(1, 1024, 256)
+
+residual_fsq.eval()
+
+quantized, indices = residual_fsq(x)
+
+# (1, 1024, 256), (1, 1024, 8), (8)
+# (batch, seq, dim), (batch, seq, quantizers), (quantizers)
+
+quantized_out = residual_fsq.get_output_from_indices(indices)
+
+# (8, 1, 1024, 8)
+# (residual layers, batch, seq, quantizers)
+
+assert torch.all(quantized == quantized_out)
+```
+
 ### Lookup Free Quantization
 
 <img src="./images/lfq.png" width="450px"></img>

@@ -3,7 +3,7 @@ Finite Scalar Quantization: VQ-VAE Made Simple - https://arxiv.org/abs/2309.1550
 Code adapted from Jax version in Appendix A.1
 """
 
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -42,9 +42,10 @@ class FSQ(Module):
     def __init__(
         self,
         levels: List[int],
-        dim = None,
+        dim: Optional[int] = None,
         num_codebooks = 1,
-        keep_num_codebooks_dim = None
+        keep_num_codebooks_dim: Optional[bool] = None,
+        scale: Optional[float] = None
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -52,6 +53,8 @@ class FSQ(Module):
 
         _basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=int32)
         self.register_buffer("_basis", _basis, persistent = False)
+
+        self.scale = scale
 
         codebook_dim = len(levels)
         self.codebook_dim = codebook_dim
