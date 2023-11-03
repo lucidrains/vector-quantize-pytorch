@@ -54,6 +54,7 @@ class ResidualFSQ(Module):
         self.layers = nn.ModuleList([])
 
         levels_tensor = torch.Tensor(levels)
+
         scales = []
 
         for ind in range(num_quantizers):
@@ -66,6 +67,8 @@ class ResidualFSQ(Module):
             )
 
             self.layers.append(fsq)
+
+        self.codebook_size = self.layers[0].codebook_size
 
         self.register_buffer('scales', torch.stack(scales), persistent = False)
 
@@ -220,6 +223,8 @@ class GroupedResidualFSQ(Module):
                 dim = dim_per_group,
                 **kwargs
             ))
+
+        self.codebook_size = self.rvqs[0].codebook_size
 
     @property
     def codebooks(self):

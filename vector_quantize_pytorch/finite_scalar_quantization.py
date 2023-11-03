@@ -71,8 +71,9 @@ class FSQ(Module):
         self.project_in = nn.Linear(self.dim, effective_codebook_dim) if self.dim != effective_codebook_dim else nn.Identity()
         self.project_out = nn.Linear(effective_codebook_dim, self.dim) if self.dim != effective_codebook_dim else nn.Identity()
 
-        self.n_codes = self._levels.prod().item()
-        implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes), project_out = False)
+        self.codebook_size = self._levels.prod().item()
+
+        implicit_codebook = self.indices_to_codes(torch.arange(self.codebook_size), project_out = False)
         self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
 
     def bound(self, z: Tensor, eps: float = 1e-3) -> Tensor:
