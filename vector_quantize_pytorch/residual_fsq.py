@@ -163,7 +163,6 @@ class ResidualFSQ(Module):
 
                 if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
                     all_indices.append(null_indices)
-                    all_losses.append(null_loss)
                     continue
 
                 quantized, indices = layer(residual / scale)
@@ -178,7 +177,7 @@ class ResidualFSQ(Module):
 
         quantized_out = self.project_out(quantized_out)
 
-        # stack all losses and indices
+        # stack all indices
 
         all_indices = torch.stack(all_indices, dim = -1)
 
