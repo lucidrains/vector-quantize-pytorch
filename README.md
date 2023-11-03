@@ -295,7 +295,6 @@ from vector_quantize_pytorch import ResidualFSQ
 residual_fsq = ResidualFSQ(
     dim = 256,
     levels = [8, 5, 5, 3],
-    codebook_size = 256,
     num_quantizers = 8
 )
 

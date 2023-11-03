@@ -36,7 +36,6 @@ class ResidualFSQ(Module):
         dim,
         levels: List[int],
         num_quantizers,
-        codebook_size,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
@@ -218,7 +217,7 @@ class GroupedResidualFSQ(Module):
         self.rvqs = nn.ModuleList([])
 
         for _ in range(groups):
-            self.rvqs.append(ResidualLFQ(
+            self.rvqs.append(ResidualFSQ(
                 dim = dim_per_group,
                 **kwargs
             ))
