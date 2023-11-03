@@ -42,27 +42,35 @@ class FSQ(Module):
     def __init__(
         self,
         levels: List[int],
-        dim = None
+        dim = None,
+        num_codebooks = 1,
+        keep_num_codebooks_dim = None
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
-        self.register_buffer("_levels", _levels)
-
-        self.dim = default(dim, len(_levels))
+        self.register_buffer("_levels", _levels, persistent = False)
 
         _basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=int32)
-        self.register_buffer("_basis", _basis)
+        self.register_buffer("_basis", _basis, persistent = False)
 
         codebook_dim = len(levels)
         self.codebook_dim = codebook_dim
 
-        self.dim = default(dim, codebook_dim)
-        self.project_in = nn.Linear(self.dim, codebook_dim) if self.dim != codebook_dim else nn.Identity()
-        self.project_out = nn.Linear(codebook_dim, self.dim) if self.dim != codebook_dim else nn.Identity()
+        effective_codebook_dim = codebook_dim * num_codebooks
+        self.num_codebooks = num_codebooks
+        self.effective_codebook_dim = effective_codebook_dim
+
+        keep_num_codebooks_dim = default(keep_num_codebooks_dim, num_codebooks > 1)
+        assert not (num_codebooks > 1 and not keep_num_codebooks_dim)
+        self.keep_num_codebooks_dim = keep_num_codebooks_dim
+
+        self.dim = default(dim, len(_levels) * num_codebooks)
+        self.project_in = nn.Linear(self.dim, effective_codebook_dim) if self.dim != effective_codebook_dim else nn.Identity()
+        self.project_out = nn.Linear(effective_codebook_dim, self.dim) if self.dim != effective_codebook_dim else nn.Identity()
 
         self.n_codes = self._levels.prod().item()
         implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes), project_out = False)
-        self.register_buffer("implicit_codebook", implicit_codebook)
+        self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
 
     def bound(self, z: Tensor, eps: float = 1e-3) -> Tensor:
         """Bound `z`, an array of shape (..., d)."""
@@ -98,11 +106,14 @@ class FSQ(Module):
     ) -> Tensor:
         """Inverse of `codes_to_indices`."""
 
-        is_img_or_video = indices.ndim >= 3
+        is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
         indices = rearrange(indices, '... -> ... 1')
         codes_non_centered = (indices // self._basis) % self._levels
         codes = self._scale_and_shift_inverse(codes_non_centered)
+
+        if self.keep_num_codebooks_dim:
+            codes = rearrange(codes, '... c d -> ... (c d)')
 
         if project_out:
             codes = self.project_out(codes)
@@ -133,8 +144,12 @@ class FSQ(Module):
 
         z = self.project_in(z)
 
+        z = rearrange(z, 'b n (c d) -> b n c d', c = self.num_codebooks)
+
         codes = self.quantize(z)
         indices = self.codes_to_indices(codes)
+
+        codes = rearrange(codes, 'b n c d -> b n (c d)')
 
         out = self.project_out(codes)
 
@@ -144,6 +159,9 @@ class FSQ(Module):
             out = unpack_one(out, ps, 'b * d')
             out = rearrange(out, 'b ... d -> b d ...')
 
-            indices = unpack_one(indices, ps, 'b *')
+            indices = unpack_one(indices, ps, 'b * c')
+
+        if not self.keep_num_codebooks_dim:
+            indices = rearrange(indices, '... 1 -> ...')
 
         return out, indices
