@@ -286,7 +286,9 @@ assert xhat.shape == x.shape
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
 ```
 
-An improvised Residual FSQ, for an attempt to improve audio encoding.
+An improvised Residual FSQ, for an attempt to improve audio encoding. 
+
+Credit goes to [@sekstini](https://github.com/sekstini) for originally incepting the idea [here](https://github.com/lucidrains/vector-quantize-pytorch/pull/74#issuecomment-1742048597)
 
 ```python
 import torch
