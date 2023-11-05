@@ -1,7 +1,7 @@
+import random
 from math import ceil
 from functools import partial
 from itertools import zip_longest
-from random import randrange
 
 import torch
 from torch import nn
@@ -123,7 +123,8 @@ class ResidualVQ(nn.Module):
         x,
         indices = None,
         return_all_codes = False,
-        sample_codebook_temp = None
+        sample_codebook_temp = None,
+        rand_quantize_dropout_fixed_seed = None
     ):
         num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
 
@@ -147,7 +148,9 @@ class ResidualVQ(nn.Module):
         # also prepare null indices and loss
 
         if should_quantize_dropout:
-            rand_quantize_dropout_index = randrange(self.quantize_dropout_cutoff_index, num_quant)
+            rand = random.Random(rand_quantize_dropout_fixed_seed) if exists(rand_quantize_dropout_fixed_seed) else random
+
+            rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
@@ -272,7 +275,8 @@ class GroupedResidualVQ(nn.Module):
 
         forward_kwargs = dict(
             return_all_codes = return_all_codes,
-            sample_codebook_temp = sample_codebook_temp
+            sample_codebook_temp = sample_codebook_temp,
+            rand_quantize_dropout_fixed_seed = random.randint(0, 1e7)
         )
 
         # invoke residual vq on each group

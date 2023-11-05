@@ -1,5 +1,5 @@
+import random
 from math import log2
-from random import randrange
 from functools import partial
 
 from typing import List
@@ -135,7 +135,8 @@ class ResidualFSQ(Module):
     def forward(
         self,
         x,
-        return_all_codes = False
+        return_all_codes = False,
+        rand_quantize_dropout_fixed_seed = None
     ):
         num_quant, quant_dropout_multiple_of, device = self.num_quantizers, self.quantize_dropout_multiple_of, x.device
 
@@ -152,7 +153,9 @@ class ResidualFSQ(Module):
         # also prepare null indices
 
         if should_quantize_dropout:
-            rand_quantize_dropout_index = randrange(self.quantize_dropout_cutoff_index, num_quant)
+            rand = random.Random(rand_quantize_dropout_fixed_seed) if exists(rand_quantize_dropout_fixed_seed) else random
+
+            rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
@@ -254,7 +257,10 @@ class GroupedResidualFSQ(Module):
 
         x = x.chunk(self.groups, dim = split_dim)
 
-        forward_kwargs = dict(return_all_codes = return_all_codes)
+        forward_kwargs = dict(
+            return_all_codes = return_all_codes,
+            rand_quantize_dropout_fixed_seed = random.randint(0, 1e7)
+        )
 
         # invoke residual vq on each group
 
