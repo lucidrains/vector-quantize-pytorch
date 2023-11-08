@@ -68,8 +68,11 @@ class FSQ(Module):
         self.keep_num_codebooks_dim = keep_num_codebooks_dim
 
         self.dim = default(dim, len(_levels) * num_codebooks)
-        self.project_in = nn.Linear(self.dim, effective_codebook_dim) if self.dim != effective_codebook_dim else nn.Identity()
-        self.project_out = nn.Linear(effective_codebook_dim, self.dim) if self.dim != effective_codebook_dim else nn.Identity()
+
+        has_projections = self.dim != effective_codebook_dim
+        self.project_in = nn.Linear(self.dim, effective_codebook_dim) if has_projections else nn.Identity()
+        self.project_out = nn.Linear(effective_codebook_dim, self.dim) if has_projections else nn.Identity()
+        self.has_projections = has_projections
 
         self.codebook_size = self._levels.prod().item()
 

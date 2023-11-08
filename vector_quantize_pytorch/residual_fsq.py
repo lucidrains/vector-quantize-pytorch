@@ -47,6 +47,7 @@ class ResidualFSQ(Module):
         requires_projection = codebook_dim != dim
         self.project_in = nn.Linear(dim, codebook_dim) if requires_projection else nn.Identity()
         self.project_out = nn.Linear(codebook_dim, dim) if requires_projection else nn.Identity()
+        self.has_projections = requires_projection
 
         self.num_quantizers = num_quantizers
 
@@ -67,6 +68,8 @@ class ResidualFSQ(Module):
             )
 
             self.layers.append(fsq)
+
+        assert all([not fsq.has_projections for fsq in self.layers])
 
         self.codebook_size = self.layers[0].codebook_size
 

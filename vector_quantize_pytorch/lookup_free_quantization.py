@@ -84,8 +84,10 @@ class LFQ(Module):
         codebook_dims = codebook_dim * num_codebooks
         dim = default(dim, codebook_dims)
 
-        self.project_in = nn.Linear(dim, codebook_dims) if dim != codebook_dims else nn.Identity()
-        self.project_out = nn.Linear(codebook_dims, dim) if dim != codebook_dims else nn.Identity()
+        has_projections = dim != codebook_dims
+        self.project_in = nn.Linear(dim, codebook_dims) if has_projections else nn.Identity()
+        self.project_out = nn.Linear(codebook_dims, dim) if has_projections else nn.Identity()
+        self.has_projections = has_projections
 
         self.dim = dim
         self.codebook_dim = codebook_dim

@@ -47,11 +47,14 @@ class ResidualVQ(nn.Module):
         requires_projection = codebook_input_dim != dim
         self.project_in = nn.Linear(dim, codebook_input_dim) if requires_projection else nn.Identity()
         self.project_out = nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
+        self.has_projections = requires_projection
 
         self.num_quantizers = num_quantizers
 
         self.accept_image_fmap = accept_image_fmap
         self.layers = nn.ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
+
+        assert all([not vq.has_projections for vq in self.layers])
 
         self.quantize_dropout = quantize_dropout and num_quantizers > 1
 

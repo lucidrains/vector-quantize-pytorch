@@ -45,6 +45,7 @@ class ResidualLFQ(Module):
         requires_projection = codebook_dim != dim
         self.project_in = nn.Linear(dim, codebook_dim) if requires_projection else nn.Identity()
         self.project_out = nn.Linear(codebook_dim, dim) if requires_projection else nn.Identity()
+        self.has_projections = requires_projection
 
         self.num_quantizers = num_quantizers
 
@@ -60,6 +61,8 @@ class ResidualLFQ(Module):
             )
 
             self.layers.append(lfq)
+
+        assert all([not lfq.has_projections for lfq in self.layers])
 
         self.quantize_dropout = quantize_dropout and num_quantizers > 1
 
