@@ -49,7 +49,7 @@ def euclidean_distance_squared(x, y):
 
 # entropy
 
-def log(t, eps = 1e-20):
+def log(t, eps = 1e-5):
     return t.clamp(min = eps).log()
 
 def entropy(prob):
