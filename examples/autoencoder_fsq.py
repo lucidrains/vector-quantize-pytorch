@@ -28,14 +28,16 @@ class SimpleFSQAutoEncoder(nn.Module):
                 nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
                 nn.MaxPool2d(kernel_size=2, stride=2),
                 nn.GELU(),
-                nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
-                nn.Conv2d(8, 8, kernel_size=6, stride=3, padding=0),
+                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(32, len(levels), kernel_size=1),
                 FSQ(levels),
-                nn.ConvTranspose2d(8, 8, kernel_size=6, stride=3, padding=0),
-                nn.Conv2d(8, 16, kernel_size=4, stride=1, padding=2),
+                nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
+                nn.Upsample(scale_factor=2, mode="nearest"),
+                nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
                 nn.GELU(),
                 nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=2),
+                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
             ]
         )
         return

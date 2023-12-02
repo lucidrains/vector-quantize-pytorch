@@ -2,15 +2,15 @@
 Lookup Free Quantization
 Proposed in https://arxiv.org/abs/2310.05737
 
-basically a 2-level FSQ (Finite Scalar Quantization) with entropy loss
-https://arxiv.org/abs/2309.15505
+In the simplest setup, each dimension is quantized into {-1, 1}.
+An entropy penalty is used to encourage utilization.
 """
 
 from math import log2, ceil
 from collections import namedtuple
 
 import torch
-from torch import nn, Tensor, einsum
+from torch import nn, einsum
 import torch.nn.functional as F
 from torch.nn import Module
 
@@ -39,21 +39,13 @@ def pack_one(t, pattern):
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
 
-# distance
-
-def euclidean_distance_squared(x, y):
-    x2 = reduce(x ** 2, '... n d -> ... n', 'sum')
-    y2 = reduce(y ** 2, 'n d -> n', 'sum')
-    xy = einsum('... i d, j d -> ... i j', x, y) * -2
-    return rearrange(x2, '... i -> ... i 1') + y2 + xy
-
 # entropy
 
 def log(t, eps = 1e-5):
     return t.clamp(min = eps).log()
 
 def entropy(prob):
-    return -prob * log(prob)
+    return (-prob * log(prob)).sum(dim=-1)
 
 # class
 
@@ -64,8 +56,8 @@ class LFQ(Module):
         dim = None,
         codebook_size = None,
         entropy_loss_weight = 0.1,
-        commitment_loss_weight = 1.,
-        diversity_gamma = 2.5,
+        commitment_loss_weight = 0.25,
+        diversity_gamma = 1.,
         straight_through_activation = nn.Identity(),
         num_codebooks = 1,
         keep_num_codebooks_dim = None,
@@ -168,7 +160,7 @@ class LFQ(Module):
     def forward(
         self,
         x,
-        inv_temperature = 1.,
+        inv_temperature = 100.,
         return_loss_breakdown = False
     ):
         """
@@ -202,11 +194,11 @@ class LFQ(Module):
         codebook_value = torch.ones_like(x) * self.codebook_scale
         quantized = torch.where(x > 0, codebook_value, -codebook_value)
 
-        # use straight-through gradients with tanh (or custom activation fn) if training
+        # use straight-through gradients (optionally with custom activation fn) if training
 
         if self.training:
             x = self.activation(x)
-            x = x - x.detach() + quantized
+            x = x + (quantized - x).detach()
         else:
             x = quantized
 
@@ -217,13 +209,15 @@ class LFQ(Module):
         # entropy aux loss
 
         if self.training:
-            distance = euclidean_distance_squared(original_input, self.codebook)
+            # the same as euclidean distance up to a constant
+            distance = -2 * einsum('... i d, j d -> ... i j', original_input, self.codebook)
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 
             per_sample_entropy = entropy(prob).mean()
 
-            avg_prob = reduce(prob, 'b n c d -> b c d', 'mean')
+            # distribution over all available tokens in the batch
+            avg_prob = reduce(prob, 'b n c d -> c d', 'mean')
             codebook_entropy = entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions

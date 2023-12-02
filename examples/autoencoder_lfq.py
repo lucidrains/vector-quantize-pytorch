@@ -13,10 +13,11 @@ from torch.utils.data import DataLoader
 from vector_quantize_pytorch import LFQ
 
 lr = 3e-4
-train_iter = 10000
+train_iter = 1000
 seed = 1234
 codebook_size = 2 ** 8
-diversity_gamma = 10.
+entropy_loss_weight = 0.02
+diversity_gamma = 1.
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class LFQAutoEncoder(nn.Module):
@@ -33,22 +34,23 @@ class LFQAutoEncoder(nn.Module):
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.GELU(),
-            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
-            nn.GELU(),
-            nn.Conv2d(16, quantize_dim, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # In general norm layers are commonly used in Resnet-based encoder/decoders
+            # explicitly add one here with affine=False to avoid introducing new parameters
+            nn.GroupNorm(4, 32, affine=False),
+            nn.Conv2d(32, quantize_dim, kernel_size=1),
         )
 
         self.quantize = LFQ(dim=quantize_dim, **vq_kwargs)
 
         self.decode = nn.Sequential(
+            nn.Conv2d(quantize_dim, 32, kernel_size=3, stride=1, padding=1),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(quantize_dim, 16, kernel_size=3, stride=1, padding=1),
-            nn.GELU(),
-            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
             nn.GELU(),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1)
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
         return
 
@@ -104,6 +106,7 @@ torch.random.manual_seed(seed)
 
 model = LFQAutoEncoder(
     codebook_size = codebook_size,
+    entropy_loss_weight = entropy_loss_weight,
     diversity_gamma = diversity_gamma
 ).to(device)
 
