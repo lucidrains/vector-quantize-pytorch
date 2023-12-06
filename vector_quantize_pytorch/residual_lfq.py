@@ -122,6 +122,7 @@ class ResidualLFQ(Module):
     def forward(
         self,
         x,
+        mask = None,
         return_all_codes = False,
         rand_quantize_dropout_fixed_seed = None
     ):
@@ -161,7 +162,7 @@ class ResidualLFQ(Module):
                     all_losses.append(null_loss)
                     continue
 
-                quantized, indices, loss = layer(residual)
+                quantized, indices, loss = layer(residual, mask = mask)
 
                 residual = residual - quantized.detach()
                 quantized_out = quantized_out + quantized
@@ -236,6 +237,7 @@ class GroupedResidualLFQ(Module):
     def forward(
         self,
         x,
+        mask = None,
         return_all_codes = False
     ):
         shape, split_dim = x.shape, self.split_dim
@@ -246,6 +248,7 @@ class GroupedResidualLFQ(Module):
         x = x.chunk(self.groups, dim = split_dim)
 
         forward_kwargs = dict(
+            mask = mask,
             return_all_codes = return_all_codes,
             rand_quantize_dropout_fixed_seed = random.randint(0, 1e7)
         )

@@ -124,6 +124,7 @@ class ResidualVQ(nn.Module):
     def forward(
         self,
         x,
+        mask = None,
         indices = None,
         return_all_codes = False,
         sample_codebook_temp = None,
@@ -175,7 +176,12 @@ class ResidualVQ(nn.Module):
             if return_loss:
                 layer_indices = indices[..., quantizer_index]
 
-            quantized, *rest = layer(residual, indices = layer_indices, sample_codebook_temp = sample_codebook_temp)
+            quantized, *rest = layer(
+                residual,
+                mask = mask,
+                indices = layer_indices,
+                sample_codebook_temp = sample_codebook_temp,
+            )
 
             residual = residual - quantized.detach()
             quantized_out = quantized_out + quantized
@@ -263,7 +269,8 @@ class GroupedResidualVQ(nn.Module):
         x,
         indices = None,
         return_all_codes = False,
-        sample_codebook_temp = None
+        sample_codebook_temp = None,
+        mask = None,
     ):
         shape, split_dim = x.shape, self.split_dim
         assert shape[split_dim] == self.dim
@@ -279,6 +286,7 @@ class GroupedResidualVQ(nn.Module):
         forward_kwargs = dict(
             return_all_codes = return_all_codes,
             sample_codebook_temp = sample_codebook_temp,
+            mask = mask,
             rand_quantize_dropout_fixed_seed = random.randint(0, 1e7)
         )
 

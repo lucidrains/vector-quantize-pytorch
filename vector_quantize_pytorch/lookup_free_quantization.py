@@ -161,7 +161,8 @@ class LFQ(Module):
         self,
         x,
         inv_temperature = 100.,
-        return_loss_breakdown = False
+        return_loss_breakdown = False,
+        mask = None,
     ):
         """
         einstein notation
@@ -216,8 +217,14 @@ class LFQ(Module):
 
             per_sample_entropy = entropy(prob).mean()
 
+            # account for mask
+
+            if exists(mask):
+                prob = prob[mask]
+
             # distribution over all available tokens in the batch
-            avg_prob = reduce(prob, 'b n c d -> c d', 'mean')
+
+            avg_prob = reduce(prob, '... c d -> c d', 'mean')
             codebook_entropy = entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
@@ -231,7 +238,12 @@ class LFQ(Module):
         # commit loss
 
         if self.training:
-            commit_loss = F.mse_loss(original_input, quantized.detach())
+            commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
+
+            if exists(mask):
+                commit_loss = commit_loss[mask]
+
+            commit_loss = commit_loss.mean()
         else:
             commit_loss = self.zero
 
