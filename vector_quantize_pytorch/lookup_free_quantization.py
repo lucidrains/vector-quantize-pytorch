@@ -39,6 +39,36 @@ def pack_one(t, pattern):
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
 
+
+# masked mean
+
+def mult_along_first_dims(x, y):
+    # returns x * y elementwise along the first dims of x and y
+    ndim_to_expand = x.ndim - y.ndim
+    assert ndim_to_expand >= 0
+    return x * y[..., *[None for _ in range(ndim_to_expand)]]
+
+def masked_mean(x, m):
+    """
+    Takes the mean of the elements of x that are not masked across the first
+    shared dims of x and m.
+
+    Equivalent to: x[m].mean(dim=list(range(m.ndim)))
+
+    m is False where padding is
+    """
+
+    # masks x
+    x = mult_along_first_dims(x, m)
+
+    # divides by the number of non masked items
+    x = x / m.sum()
+
+    # sum across the leading dims that x and m share
+    return x.sum(dim=list(range(m.ndim)))
+
+
+
 # entropy
 
 def log(t, eps = 1e-5):
@@ -215,16 +245,19 @@ class LFQ(Module):
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 
-            per_sample_entropy = entropy(prob).mean()
-
-            # account for mask
-
             if exists(mask):
-                prob = prob[mask]
+                # b n c d -> 1
+                per_sample_entropy = masked_mean(entropy(prob), mask).mean()
 
-            # distribution over all available tokens in the batch
+                # b n c d -> c d
+                avg_prob = masked_mean(prob, mask)
+            else:
+                per_sample_entropy = entropy(prob).mean()
 
-            avg_prob = reduce(prob, '... c d -> c d', 'mean')
+                # distribution over all available tokens in the batch
+
+                avg_prob = reduce(prob, '... c d -> c d', 'mean')
+
             codebook_entropy = entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
@@ -241,9 +274,9 @@ class LFQ(Module):
             commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
 
             if exists(mask):
-                commit_loss = commit_loss[mask]
-
-            commit_loss = commit_loss.mean()
+                commit_loss = masked_mean(commit_loss, mask).mean()
+            else:
+                commit_loss = commit_loss.mean()
         else:
             commit_loss = self.zero
 
