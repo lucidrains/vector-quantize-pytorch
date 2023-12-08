@@ -46,7 +46,9 @@ def mult_along_first_dims(x, y):
     # returns x * y elementwise along the first dims of x and y
     ndim_to_expand = x.ndim - y.ndim
     assert ndim_to_expand >= 0
-    return x * y[..., *[None for _ in range(ndim_to_expand)]]
+    for _ in range(ndim_to_expand):
+        y = y.unsqueeze(-1)
+    return x * y
 
 def masked_mean(x, m):
     """
