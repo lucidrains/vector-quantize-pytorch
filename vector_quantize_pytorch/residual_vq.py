@@ -128,6 +128,7 @@ class ResidualVQ(nn.Module):
         indices = None,
         return_all_codes = False,
         sample_codebook_temp = None,
+        freeze_codebook = False,
         rand_quantize_dropout_fixed_seed = None
     ):
         num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
@@ -181,6 +182,7 @@ class ResidualVQ(nn.Module):
                 mask = mask,
                 indices = layer_indices,
                 sample_codebook_temp = sample_codebook_temp,
+                freeze_codebook = freeze_codebook
             )
 
             residual = residual - quantized.detach()
@@ -270,6 +272,7 @@ class GroupedResidualVQ(nn.Module):
         indices = None,
         return_all_codes = False,
         sample_codebook_temp = None,
+        freeze_codebook = False,
         mask = None,
     ):
         shape, split_dim = x.shape, self.split_dim
@@ -287,6 +290,7 @@ class GroupedResidualVQ(nn.Module):
             return_all_codes = return_all_codes,
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
+            freeze_codebook = freeze_codebook,
             rand_quantize_dropout_fixed_seed = random.randint(0, 1e7)
         )
 
