@@ -83,7 +83,7 @@ class FSQ(Module):
         """Bound `z`, an array of shape (..., d)."""
         half_l = (self._levels - 1) * (1 - eps) / 2
         offset = torch.where(self._levels % 2 == 0, 0.5, 0.0)
-        shift = (offset / half_l).tan()
+        shift = (offset / half_l).atanh()
         return (z + shift).tanh() * half_l - offset
 
     def quantize(self, z: Tensor) -> Tensor:
