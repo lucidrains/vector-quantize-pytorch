@@ -19,6 +19,9 @@ from einops import rearrange, repeat, reduce, pack, unpack
 def exists(val):
     return val is not None
 
+def first(l):
+    return l[0]
+
 def default(val, d):
     return val if exists(val) else d
 
@@ -59,7 +62,7 @@ class ResidualFSQ(Module):
         scales = []
 
         for ind in range(num_quantizers):
-            scales.append(levels_tensor ** -ind)
+            scales.append((levels_tensor - 1) ** -ind)
 
             fsq = FSQ(
                 levels = levels,
@@ -146,7 +149,7 @@ class ResidualFSQ(Module):
         x = self.project_in(x)
 
         quantized_out = 0.
-        residual = x
+        residual = first(self.layers).bound(x)
 
         all_indices = []
 
