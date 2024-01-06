@@ -345,7 +345,7 @@ quantizer = LFQ(
 
 image_feats = torch.randn(1, 16, 32, 32)
 
-quantized, indices, entropy_aux_loss = quantizer(image_feats)
+quantized, indices, entropy_aux_loss = quantizer(image_feats, inv_temperature=100.)  # you may want to experiment with temperature
 
 # (1, 16, 32, 32), (1, 32, 32), (1,)
 
