@@ -13,6 +13,7 @@ import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 from torch.nn import Module
+from torch.cuda.amp import autocast
 
 from einops import rearrange, reduce, pack, unpack
 
@@ -161,6 +162,7 @@ class LFQ(Module):
 
         return codes
 
+    @autocast(enabled = False)
     def forward(
         self,
         x,

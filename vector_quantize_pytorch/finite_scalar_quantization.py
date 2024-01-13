@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch.nn import Module
 from torch import Tensor, int32
+from torch.cuda.amp import autocast
 
 from einops import rearrange, pack, unpack
 
@@ -130,6 +131,7 @@ class FSQ(Module):
 
         return codes
 
+    @autocast(enabled = False)
     def forward(self, z: Tensor) -> Tensor:
         """
         einstein notation
