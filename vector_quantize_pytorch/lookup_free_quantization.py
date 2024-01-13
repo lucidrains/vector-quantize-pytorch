@@ -61,7 +61,8 @@ class LFQ(Module):
         straight_through_activation = nn.Identity(),
         num_codebooks = 1,
         keep_num_codebooks_dim = None,
-        codebook_scale = 1.  # for residual LFQ, codebook scaled down by 2x at each layer
+        codebook_scale = 1.,            # for residual LFQ, codebook scaled down by 2x at each layer
+        frac_per_sample_entropy = 1.    # make less than 1. to only use a random fraction of the probs for per sample entropy
     ):
         super().__init__()
 
@@ -94,6 +95,9 @@ class LFQ(Module):
         self.activation = straight_through_activation
 
         # entropy aux loss related weights
+
+        assert 0 < frac_per_sample_entropy <= 1.
+        self.frac_per_sample_entropy = frac_per_sample_entropy
 
         self.diversity_gamma = diversity_gamma
         self.entropy_loss_weight = entropy_loss_weight
@@ -219,8 +223,22 @@ class LFQ(Module):
 
             if exists(mask):
                 prob = prob[mask]
+            else:
+                prob = rearrange(prob, 'b n ... -> (b n) ...')
 
-            per_sample_entropy = entropy(prob).mean()
+            # whether to only use a fraction of probs, for reducing memory
+
+            if self.frac_per_sample_entropy < 1.:
+                num_tokens = prob.shape[0]
+                num_sampled_tokens = int(num_tokens * self.frac_per_sample_entropy)
+                rand_mask = torch.randn(num_tokens).argsort(dim = -1) < num_sampled_tokens
+                per_sample_probs = prob[rand_mask]
+            else:
+                per_sample_probs = prob
+
+            # calculate per sample entropy
+
+            per_sample_entropy = entropy(per_sample_probs).mean()
 
             # distribution over all available tokens in the batch
 
