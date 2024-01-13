@@ -215,12 +215,12 @@ class LFQ(Module):
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 
-            per_sample_entropy = entropy(prob).mean()
-
             # account for mask
 
             if exists(mask):
                 prob = prob[mask]
+
+            per_sample_entropy = entropy(prob).mean()
 
             # distribution over all available tokens in the batch
 
