@@ -244,7 +244,7 @@ class LFQ(Module):
 
             # distribution over all available tokens in the batch
 
-            avg_prob = reduce(prob, '... c d -> c d', 'mean')
+            avg_prob = reduce(per_sample_probs, '... c d -> c d', 'mean')
             codebook_entropy = entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
