@@ -493,7 +493,9 @@ class EuclideanCodebook(nn.Module):
             ema_inplace(self.cluster_size.data, cluster_size, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
-            self.all_reduce_fn(embed_sum.contiguous())
+            embed_sum = embed_sum.contiguous()
+            self.all_reduce_fn(embed_sum)
+
             ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
@@ -664,7 +666,9 @@ class CosineSimCodebook(nn.Module):
             ema_inplace(self.cluster_size.data, bins, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
-            self.all_reduce_fn(embed_sum.contiguous())
+            embed_sum = embed_sum.contiguous()
+            self.all_reduce_fn(embed_sum)
+
             ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
