@@ -217,7 +217,7 @@ class LFQ(Module):
 
         if self.training:
             # the same as euclidean distance up to a constant
-            distance = -2 * einsum('... i d, j d -> ... i j', original_input, self.codebook)
+            distance = -2 * einsum('... i d, j d -> ... i j', original_input, self.codebook.to(original_input))
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 
