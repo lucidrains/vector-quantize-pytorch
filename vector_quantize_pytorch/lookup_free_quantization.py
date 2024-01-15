@@ -178,6 +178,8 @@ class LFQ(Module):
         c - number of codebook dim
         """
 
+        x = x.float()
+
         is_img_or_video = x.ndim >= 4
 
         # standardize image or video into (batch, seq, dimension)
