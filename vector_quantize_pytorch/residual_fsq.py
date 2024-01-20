@@ -14,6 +14,8 @@ from vector_quantize_pytorch.finite_scalar_quantization import FSQ
 
 from einops import rearrange, repeat, reduce, pack, unpack
 
+from einx import get_at
+
 # helper functions
 
 def exists(val):
@@ -106,21 +108,16 @@ class ResidualFSQ(Module):
             assert self.quantize_dropout > 0., 'quantize dropout must be greater than 0 if you wish to reconstruct from a signal with less fine quantizations'
             indices = F.pad(indices, (0, self.num_quantizers - quantize_dim), value = -1)
 
-        # get ready for gathering
-
-        codebooks = repeat(self.codebooks, 'q c d -> q b c d', b = batch)
-        gather_indices = repeat(indices, 'b n q -> q b n d', d = codebooks.shape[-1])
-
         # take care of quantizer dropout
 
-        mask = gather_indices == -1.
-        gather_indices = gather_indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
+        mask = indices == -1
+        indices = indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
 
-        all_codes = codebooks.gather(2, gather_indices.long()) # gather all codes
+        all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
 
         # mask out any codes that were dropout-ed
 
-        all_codes = all_codes.masked_fill(mask, 0.)
+        all_codes = all_codes.masked_fill(rearrange(mask, 'b n q -> q b n 1'), 0.)
 
         # scale the codes
 
