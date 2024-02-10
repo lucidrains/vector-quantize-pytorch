@@ -137,7 +137,7 @@ class FSQ(Module):
         einstein notation
         b - batch
         n - sequence (or flattened spatial dimensions)
-        d - feature dimension, which is also log2(codebook size)
+        d - feature dimension
         c - number of codebook dim
         """
 

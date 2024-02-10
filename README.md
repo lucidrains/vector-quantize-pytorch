@@ -420,6 +420,67 @@ quantized_out = residual_lfq.get_output_from_indices(indices)
 assert torch.all(quantized == quantized_out)
 ```
 
+### Latent Quantization
+Disentanglement is essential for representation learning as it promotes interpretability, generalization, improved learning, and robustness. It aligns with the goal of capturing meaningful and independent features of the data, facilitating more effective use of learned representations across various applications. For better disentanglement, the challenge is to disentangle underlying variations in a dataset without explicit ground truth information. This work introduces a key inductive bias aimed at encoding and decoding within an organized latent space. The strategy incorporated encompasses discretizing the latent space by assigning discrete code vectors through the utilization of an individual learnable scalar codebook for each dimension. This methodology enables their models to surpass robust prior methods effectively.
+
+```python
+import torch
+from vector_quantize_pytorch import LatentQuantize
+
+# you can specify either dim or codebook_size
+# if both specified, will be validated against each other
+
+quantizer = LatentQuantize(
+    levels = [5, 5, 8],      # number of levels per codebook dimension
+    dim = 16,                   # input dim
+    commitment_loss_weight=0.1,  
+    quantization_loss_weight=0.1,
+)
+
+image_feats = torch.randn(1, 16, 32, 32)
+
+quantized, indices, loss = quantizer(image_feats)
+
+# (1, 16, 32, 32), (1, 32, 32), (1,)
+
+assert image_feats.shape == quantized.shape
+assert (quantized == quantizer.indices_to_codes(indices)).all()
+```
+
+You can also pass in video features as `(batch, feat, time, height, width)` or sequences as `(batch, seq, feat)`
+
+```python
+
+seq = torch.randn(1, 32, 16)
+quantized, *_ = quantizer(seq)
+
+assert seq.shape == quantized.shape
+
+video_feats = torch.randn(1, 16, 10, 32, 32)
+quantized, *_ = quantizer(video_feats)
+
+assert video_feats.shape == quantized.shape
+
+```
+
+Or support multiple codebooks
+
+```python
+import torch
+from vector_quantize_pytorch import LatentQuantize
+
+levels = [4, 8, 16]
+dim = 9
+num_codebooks = 3
+model = LatentQuantize(levels, dim, num_codebooks=num_codebooks)
+input_tensor = torch.randn(2, 3, dim)
+output_tensor, indices, loss = model(input_tensor)
+assert output_tensor.shape == input_tensor.shape
+assert indices.shape == (2, 3, num_codebooks)
+assert loss.item() >= 0
+```
+
+
 ## Citations
 
 ```bibtex
@@ -567,5 +628,15 @@ assert torch.all(quantized == quantized_out)
     eprint  = {2310.05737},
     archivePrefix = {arXiv},
     primaryClass = {cs.CV}
+}
+```
+```bibtex
+@misc{hsu2023disentanglement,
+      title={Disentanglement via Latent Quantization}, 
+      author={Kyle Hsu and Will Dorrell and James C. R. Whittington and Jiajun Wu and Chelsea Finn},
+      year={2023},
+      eprint={2305.18378},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
 }
 ```
