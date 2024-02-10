@@ -421,7 +421,10 @@ assert torch.all(quantized == quantized_out)
 ```
 
 ### Latent Quantization
+
 Disentanglement is essential for representation learning as it promotes interpretability, generalization, improved learning, and robustness. It aligns with the goal of capturing meaningful and independent features of the data, facilitating more effective use of learned representations across various applications. For better disentanglement, the challenge is to disentangle underlying variations in a dataset without explicit ground truth information. This work introduces a key inductive bias aimed at encoding and decoding within an organized latent space. The strategy incorporated encompasses discretizing the latent space by assigning discrete code vectors through the utilization of an individual learnable scalar codebook for each dimension. This methodology enables their models to surpass robust prior methods effectively.
+
+Be aware they had to use a very high weight decay for the results in this paper.
 
 ```python
 import torch
@@ -472,9 +475,12 @@ from vector_quantize_pytorch import LatentQuantize
 levels = [4, 8, 16]
 dim = 9
 num_codebooks = 3
+
 model = LatentQuantize(levels, dim, num_codebooks=num_codebooks)
+
 input_tensor = torch.randn(2, 3, dim)
 output_tensor, indices, loss = model(input_tensor)
+
 assert output_tensor.shape == input_tensor.shape
 assert indices.shape == (2, 3, num_codebooks)
 assert loss.item() >= 0
@@ -630,13 +636,14 @@ assert loss.item() >= 0
     primaryClass = {cs.CV}
 }
 ```
+
 ```bibtex
 @misc{hsu2023disentanglement,
-      title={Disentanglement via Latent Quantization}, 
-      author={Kyle Hsu and Will Dorrell and James C. R. Whittington and Jiajun Wu and Chelsea Finn},
-      year={2023},
-      eprint={2305.18378},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
+    title   = {Disentanglement via Latent Quantization}, 
+    author  = {Kyle Hsu and Will Dorrell and James C. R. Whittington and Jiajun Wu and Chelsea Finn},
+    year    = {2023},
+    eprint  = {2305.18378},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG}
 }
 ```
