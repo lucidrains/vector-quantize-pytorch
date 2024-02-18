@@ -30,7 +30,7 @@ def cdist(x, y):
     x2 = reduce(x ** 2, 'b n d -> b n', 'sum')
     y2 = reduce(y ** 2, 'b n d -> b n', 'sum')
     xy = einsum('b i d, b j d -> b i j', x, y) * -2
-    return (rearrange(x2, 'b i -> b i 1') + rearrange(y2, 'b j -> b 1 j') + xy).sqrt()
+    return (rearrange(x2, 'b i -> b i 1') + rearrange(y2, 'b j -> b 1 j') + xy).clamp(min = 0).sqrt()
 
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
