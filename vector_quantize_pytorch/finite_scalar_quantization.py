@@ -151,16 +151,23 @@ class FSQ(Module):
 
         assert z.shape[-1] == self.dim, f'expected dimension of {self.dim} but found dimension of {z.shape[-1]}'
 
+        dtype = z.dtype
+        if dtype != torch.float:
+            z = z.float()
+        
         z = self.project_in(z)
 
         z = rearrange(z, 'b n (c d) -> b n c d', c = self.num_codebooks)
-
+        
         codes = self.quantize(z)
         indices = self.codes_to_indices(codes)
 
         codes = rearrange(codes, 'b n c d -> b n (c d)')
 
         out = self.project_out(codes)
+
+        if dtype != torch.float:
+            out = out.to(dtype)
 
         # reconstitute image or video dimensions
 
