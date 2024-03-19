@@ -3,7 +3,7 @@ Finite Scalar Quantization: VQ-VAE Made Simple - https://arxiv.org/abs/2309.1550
 Code adapted from Jax version in Appendix A.1
 """
 
-from typing import List, Optional
+from typing import List, Tuple, Optional
 
 import torch
 import torch.nn as nn
@@ -46,7 +46,8 @@ class FSQ(Module):
         dim: Optional[int] = None,
         num_codebooks = 1,
         keep_num_codebooks_dim: Optional[bool] = None,
-        scale: Optional[float] = None
+        scale: Optional[float] = None,
+        allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64)
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -79,6 +80,8 @@ class FSQ(Module):
 
         implicit_codebook = self.indices_to_codes(torch.arange(self.codebook_size), project_out = False)
         self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
+
+        self.allowed_dtypes = allowed_dtypes
 
     def bound(self, z: Tensor, eps: float = 1e-3) -> Tensor:
         """Bound `z`, an array of shape (..., d)."""
@@ -141,7 +144,13 @@ class FSQ(Module):
         c - number of codebook dim
         """
 
+        orig_dtype = z.dtype
         is_img_or_video = z.ndim >= 4
+
+        # make sure allowed dtype
+
+        if z.dtype not in self.allowed_dtypes:
+            z = z.float()
 
         # standardize image or video into (batch, seq, dimension)
 
@@ -172,5 +181,12 @@ class FSQ(Module):
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, '... 1 -> ...')
+
+        # cast back to original dtype
+
+        if out.dtype != orig_dtype:
+            out = out.type(orig_dtype)
+
+        # return quantized output and indices
 
         return out, indices
