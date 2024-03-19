@@ -826,8 +826,7 @@ class VectorQuantize(nn.Module):
         is_multiheaded = codebook.ndim > 2
 
         if not is_multiheaded:
-            codes = codebook[indices]
-            return rearrange(codes, '... h d -> ... (h d)')
+            return codebook[indices]
 
         indices, ps = pack_one(indices, 'b * h')
         indices = rearrange(indices, 'b n h -> b h n')
