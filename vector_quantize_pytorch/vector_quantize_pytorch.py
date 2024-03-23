@@ -826,17 +826,21 @@ class VectorQuantize(nn.Module):
         is_multiheaded = codebook.ndim > 2
 
         if not is_multiheaded:
-            return codebook[indices]
+            codes = codebook[indices]
+        else:
+            indices, ps = pack_one(indices, 'b * h')
+            indices = rearrange(indices, 'b n h -> b h n')
 
-        indices, ps = pack_one(indices, 'b * h')
-        indices = rearrange(indices, 'b n h -> b h n')
+            indices = repeat(indices, 'b h n -> b h n d', d = codebook.shape[-1])
+            codebook = repeat(codebook, 'h n d -> b h n d', b = indices.shape[0])
 
-        indices = repeat(indices, 'b h n -> b h n d', d = codebook.shape[-1])
-        codebook = repeat(codebook, 'h n d -> b h n d', b = indices.shape[0])
+            codes = codebook.gather(2, indices)
+            codes = rearrange(codes, 'b h n d -> b n (h d)')
+            codes = unpack_one(codes, ps, 'b * d')
 
-        codes = codebook.gather(2, indices)
-        codes = rearrange(codes, 'b h n d -> b n (h d)')
-        codes = unpack_one(codes, ps, 'b * d')
+        if not self.channel_last:
+            codes = rearrange(codes, 'b ... d -> b d ...')
+
         return codes
 
     def get_output_from_indices(self, indices):
