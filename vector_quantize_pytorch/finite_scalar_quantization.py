@@ -147,11 +147,6 @@ class FSQ(Module):
         orig_dtype = z.dtype
         is_img_or_video = z.ndim >= 4
 
-        # make sure allowed dtype
-
-        if z.dtype not in self.allowed_dtypes:
-            z = z.float()
-
         # standardize image or video into (batch, seq, dimension)
 
         if is_img_or_video:
@@ -164,10 +159,22 @@ class FSQ(Module):
 
         z = rearrange(z, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
+        # make sure allowed dtype before quantizing
+
+        if z.dtype not in self.allowed_dtypes:
+            z = z.float()
+
         codes = self.quantize(z)
         indices = self.codes_to_indices(codes)
 
         codes = rearrange(codes, 'b n c d -> b n (c d)')
+
+        # cast codes back to original dtype
+
+        if codes.dtype != orig_dtype:
+            codes = codes.type(orig_dtype)
+
+        # project out
 
         out = self.project_out(codes)
 
@@ -181,11 +188,6 @@ class FSQ(Module):
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, '... 1 -> ...')
-
-        # cast back to original dtype
-
-        if out.dtype != orig_dtype:
-            out = out.type(orig_dtype)
 
         # return quantized output and indices
 
