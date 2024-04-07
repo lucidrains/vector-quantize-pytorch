@@ -523,11 +523,12 @@ assert loss.item() >= 0
 ```
 
 ```bibtex
-@unknown{unknown,
-    author  = {Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
-    year    = {2022},
-    month   = {03},
-    title   = {Autoregressive Image Generation using Residual Quantization}
+@inproceedings{lee2022autoregressive,
+    title={Autoregressive Image Generation using Residual Quantization},
+    author={Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
+    booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+    pages={11523--11532},
+    year={2022}
 }
 ```
 
