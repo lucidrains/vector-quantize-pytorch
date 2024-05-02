@@ -47,7 +47,8 @@ class FSQ(Module):
         num_codebooks = 1,
         keep_num_codebooks_dim: Optional[bool] = None,
         scale: Optional[float] = None,
-        allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64)
+        allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64),
+        channel_first: bool = False
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -71,14 +72,17 @@ class FSQ(Module):
 
         self.dim = default(dim, len(_levels) * num_codebooks)
 
+        self.channel_first = channel_first
+
         has_projections = self.dim != effective_codebook_dim
         self.project_in = nn.Linear(self.dim, effective_codebook_dim) if has_projections else nn.Identity()
         self.project_out = nn.Linear(effective_codebook_dim, self.dim) if has_projections else nn.Identity()
+
         self.has_projections = has_projections
 
         self.codebook_size = self._levels.prod().item()
 
-        implicit_codebook = self.indices_to_codes(torch.arange(self.codebook_size), project_out = False)
+        implicit_codebook = self._indices_to_codes(torch.arange(self.codebook_size))
         self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
 
         self.allowed_dtypes = allowed_dtypes
@@ -103,33 +107,35 @@ class FSQ(Module):
     def _scale_and_shift_inverse(self, zhat: Tensor) -> Tensor:
         half_width = self._levels // 2
         return (zhat - half_width) / half_width
-    
+
+    def _indices_to_codes(self, indices: Tensor):
+        indices = rearrange(indices, '... -> ... 1')
+        codes_non_centered = (indices // self._basis) % self._levels
+        codes = self._scale_and_shift_inverse(codes_non_centered)
+        return codes
+
     def codes_to_indices(self, zhat: Tensor) -> Tensor:
         """Converts a `code` to an index in the codebook."""
         assert zhat.shape[-1] == self.codebook_dim
         zhat = self._scale_and_shift(zhat)
         return (zhat * self._basis).sum(dim=-1).to(int32)
-    
+
     def indices_to_codes(
         self,
-        indices: Tensor,
-        project_out = True
+        indices: Tensor
     ) -> Tensor:
         """Inverse of `codes_to_indices`."""
 
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
-        indices = rearrange(indices, '... -> ... 1')
-        codes_non_centered = (indices // self._basis) % self._levels
-        codes = self._scale_and_shift_inverse(codes_non_centered)
+        codes = self._indices_to_codes(indices)
 
         if self.keep_num_codebooks_dim:
             codes = rearrange(codes, '... c d -> ... (c d)')
 
-        if project_out:
-            codes = self.project_out(codes)
+        codes = self.project_out(codes)
 
-        if is_img_or_video:
+        if is_img_or_video or self.channel_first:
             codes = rearrange(codes, 'b ... d -> b d ...')
 
         return codes
@@ -146,10 +152,11 @@ class FSQ(Module):
 
         orig_dtype = z.dtype
         is_img_or_video = z.ndim >= 4
+        need_move_channel_last = is_img_or_video or self.channel_first
 
         # standardize image or video into (batch, seq, dimension)
 
-        if is_img_or_video:
+        if need_move_channel_last:
             z = rearrange(z, 'b d ... -> b ... d')
             z, ps = pack_one(z, 'b * d')
 
@@ -180,7 +187,7 @@ class FSQ(Module):
 
         # reconstitute image or video dimensions
 
-        if is_img_or_video:
+        if need_move_channel_last:
             out = unpack_one(out, ps, 'b * d')
             out = rearrange(out, 'b ... d -> b d ...')
 
