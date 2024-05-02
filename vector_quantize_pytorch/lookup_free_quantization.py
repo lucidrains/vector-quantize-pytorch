@@ -226,7 +226,6 @@ class LFQ(Module):
         # entropy aux loss
 
         if self.training:
-            # the same as euclidean distance up to a constant
             distance = euclidean_distance_squared(original_input, self.codebook)
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
