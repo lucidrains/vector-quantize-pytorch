@@ -48,6 +48,14 @@ def log(t, eps = 1e-5):
 def entropy(prob):
     return (-prob * log(prob)).sum(dim=-1)
 
+# distance
+
+def euclidean_distance_squared(x, y):
+    x2 = reduce(x ** 2, '... n d -> ... n', 'sum')
+    y2 = reduce(y ** 2, 'n d -> n', 'sum')
+    xy = einsum('... i d, j d -> ... i j', x, y) * -2
+    return rearrange(x2, '... i -> ... i 1') + y2 + xy
+
 # class
 
 class LFQ(Module):
@@ -219,7 +227,7 @@ class LFQ(Module):
 
         if self.training:
             # the same as euclidean distance up to a constant
-            distance = -2 * einsum('... i d, j d -> ... i j', original_input, self.codebook)
+            distance = euclidean_distance_squared(original_input, self.codebook)
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 
