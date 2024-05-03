@@ -1,3 +1,52 @@
+[project]
+name = "vector-quantize-pytorch"
+version = "1.14.8"
+description = "Vector Quantization - Pytorch"
+authors = [
+    { name = "Phil Wang", email = "lucidrains@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">= 3.9"
+license = { file = "LICENSE" }
+keywords = [
+    'artificial intelligence',
+    'deep learning',
+    'pytorch',
+    'quantization'
+  ]
+classifiers=[
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+    'License :: OSI Approved :: MIT License',
+    'Programming Language :: Python :: 3.6',
+  ]
+
+dependencies = [
+    "torch>=2.3.0",
+    "einops>=0.8.0",
+    "einx>=0.2.2",
+]
+
+[project.urls]
+Homepage = "https://pypi.org/project/vector-quantize-pytorch/"
+Repository = "https://github.com/lucidrains/vector-quantizer-pytorch"
+
+[project.optional-dependencies]
+examples = ["tqdm", "torchvision"]
+
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "ruff>=0.4.2",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["vector_quantize_pytorch"]

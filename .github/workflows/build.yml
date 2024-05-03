@@ -1,0 +1,14 @@
+name: Build with Rye
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python
+        uses: actions/setup-python@v4
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v2
+      - name: Build with Rye
+        run: rye build
