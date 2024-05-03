@@ -4,15 +4,24 @@ on: push
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9"]
     steps:
       - uses: actions/checkout@v4
       - name: Install Python
         uses: actions/setup-python@v4
       - name: Install the latest version of rye
         uses: eifinger/setup-rye@v2
-      - name: config
+        with:
+          enable-cache: true
+          cache-prefix: ${{ matrix.python-version }}
+      - name: Pin python-version ${{ matrix.python-version }}
+        if: steps.setup-rye.outputs.cache-hit != 'true'
+        run: rye pin ${{ matrix.python-version }}
+      - name: Install dependencies
+        if: steps.setup-rye.outputs.cache-hit != 'true'
         run: |
-          rye config --set-bool behavior.use-uv=true
-          rye symc --no-lock
+          rye sync --no-lock
       # - name: Build with Rye
       #   run: rye build
