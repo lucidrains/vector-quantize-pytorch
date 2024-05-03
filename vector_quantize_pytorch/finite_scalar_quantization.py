@@ -87,44 +87,46 @@ class FSQ(Module):
 
         self.allowed_dtypes = allowed_dtypes
 
-    def bound(self, z: Tensor, eps: float = 1e-3) -> Tensor:
-        """Bound `z`, an array of shape (..., d)."""
+    def bound(self, z, eps: float = 1e-3):
+        """ Bound `z`, an array of shape (..., d). """
         half_l = (self._levels - 1) * (1 + eps) / 2
         offset = torch.where(self._levels % 2 == 0, 0.5, 0.0)
         shift = (offset / half_l).atanh()
         return (z + shift).tanh() * half_l - offset
 
-    def quantize(self, z: Tensor) -> Tensor:
-        """Quantizes z, returns quantized zhat, same shape as z."""
+    def quantize(self, z):
+        """ Quantizes z, returns quantized zhat, same shape as z. """
         quantized = round_ste(self.bound(z))
         half_width = self._levels // 2 # Renormalize to [-1, 1].
         return quantized / half_width
     
-    def _scale_and_shift(self, zhat_normalized: Tensor) -> Tensor:
+    def _scale_and_shift(self, zhat_normalized):
         half_width = self._levels // 2
         return (zhat_normalized * half_width) + half_width
     
-    def _scale_and_shift_inverse(self, zhat: Tensor) -> Tensor:
+    def _scale_and_shift_inverse(self, zhat):
         half_width = self._levels // 2
         return (zhat - half_width) / half_width
 
-    def _indices_to_codes(self, indices: Tensor):
-        indices = rearrange(indices, '... -> ... 1')
-        codes_non_centered = (indices // self._basis) % self._levels
-        codes = self._scale_and_shift_inverse(codes_non_centered)
+    def _indices_to_codes(self, indices):
+        level_indices = self.indices_to_level_indices(indices)
+        codes = self._scale_and_shift_inverse(level_indices)
         return codes
 
-    def codes_to_indices(self, zhat: Tensor) -> Tensor:
-        """Converts a `code` to an index in the codebook."""
+    def codes_to_indices(self, zhat):
+        """ Converts a `code` to an index in the codebook. """
         assert zhat.shape[-1] == self.codebook_dim
         zhat = self._scale_and_shift(zhat)
         return (zhat * self._basis).sum(dim=-1).to(int32)
 
-    def indices_to_codes(
-        self,
-        indices: Tensor
-    ) -> Tensor:
-        """Inverse of `codes_to_indices`."""
+    def indices_to_level_indices(self, indices):
+        """ Converts indices to indices at each level, perhaps needed for a transformer with factorized embeddings """
+        indices = rearrange(indices, '... -> ... 1')
+        codes_non_centered = (indices // self._basis) % self._levels
+        return codes_non_centered
+
+    def indices_to_codes(self, indices):
+        """ Inverse of `codes_to_indices`. """
 
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
@@ -141,7 +143,7 @@ class FSQ(Module):
         return codes
 
     @autocast(enabled = False)
-    def forward(self, z: Tensor) -> Tensor:
+    def forward(self, z):
         """
         einstein notation
         b - batch
