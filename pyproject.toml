@@ -23,7 +23,7 @@ classifiers=[
   ]
 
 dependencies = [
-    "torch>=2.3.0",
+    "torch>=2.0",
     "einops>=0.8.0",
     "einx>=0.2.2",
 ]
