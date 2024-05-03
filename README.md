@@ -27,6 +27,8 @@ vq = VectorQuantize(
 
 x = torch.randn(1, 1024, 256)
 quantized, indices, commit_loss = vq(x) # (1, 1024, 256), (1, 1024), (1)
+print(quantized.shape, indices.shape, commit_loss.shape)
+#> torch.Size([1, 1024, 256]) torch.Size([1, 1024]) torch.Size([1])
 ```
 
 ## Residual VQ
