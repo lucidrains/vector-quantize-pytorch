@@ -16,4 +16,4 @@ jobs:
         run: |
           rye sync
       - name: Run pytest
-        run: rye run pytest tests/test_examples_readme.py
+        run: rye run pytest --cov=. tests/test_examples_readme.py
