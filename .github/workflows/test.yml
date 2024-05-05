@@ -12,6 +12,6 @@ jobs:
         uses: eifinger/setup-rye@v2
       - name: Install dependencies
         run: |
-          rye sync --no-lock
+          rye sync
       - name: Run pytest
         run: rye run pytest tests/test_examples_readme.py
