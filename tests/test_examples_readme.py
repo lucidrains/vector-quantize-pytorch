@@ -24,6 +24,4 @@ def test_docstrings(example: CodeExample, eval_example: EvalExample):
         eval_example.lint(example)
         eval_example.run_print_check(example)
     else:
-        # eval_example.format(example)
-        # eval_example.lint(example)
         eval_example.run_print_check(example)
