@@ -10,5 +10,8 @@ jobs:
         uses: actions/setup-python@v4
       - name: Install the latest version of rye
         uses: eifinger/setup-rye@v2
-      - name: Build with Rye
+      - name: Install dependencies
+        run: |
+          rye sync --no-lock
+      - name: Run pytest
         run: rye run pytest tests/test_examples_readme.py
