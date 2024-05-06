@@ -65,7 +65,8 @@ class LFQ(Module):
         codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
         frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
         use_code_agnostic_commit_loss = False,
-        projection_has_bias = True
+        projection_has_bias = True,
+        soft_clamp_input_value = None
     ):
         super().__init__()
 
@@ -113,6 +114,11 @@ class LFQ(Module):
 
         self.commitment_loss_weight = commitment_loss_weight
         self.use_code_agnostic_commit_loss = use_code_agnostic_commit_loss
+
+        # whether to soft clamp the input value from -value to value
+
+        self.soft_clamp_input_value = soft_clamp_input_value
+        assert not exists(soft_clamp_input_value) or soft_clamp_input_value >= 1.
 
         # for no auxiliary loss, during inference
 
@@ -194,6 +200,12 @@ class LFQ(Module):
         assert x.shape[-1] == self.dim, f'expected dimension of {self.dim} but received {x.shape[-1]}'
 
         x = self.project_in(x)
+
+        # maybe soft clamp
+
+        if exists(self.soft_clamp_input_value):
+            clamp_value = self.soft_clamp_input_value
+            x = (x / clamp_value).tanh() * clamp_value
 
         # split out number of codebooks
 
