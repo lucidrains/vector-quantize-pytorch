@@ -1,0 +1,19 @@
+name: Tests the examples in README
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python
+        uses: actions/setup-python@v4
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v2
+      - name: Use UV instead of pip
+        run: rye config --set-bool behavior.use-uv=true
+      - name: Install dependencies
+        run: |
+          rye sync
+      - name: Run pytest
+        run: rye run pytest --cov=. tests/test_examples_readme.py
