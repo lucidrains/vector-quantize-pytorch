@@ -64,7 +64,8 @@ class LFQ(Module):
         keep_num_codebooks_dim = None,
         codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
         frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
-        use_code_agnostic_commit_loss = False
+        use_code_agnostic_commit_loss = False,
+        projection_has_bias = True
     ):
         super().__init__()
 
@@ -80,8 +81,8 @@ class LFQ(Module):
         dim = default(dim, codebook_dims)
 
         has_projections = dim != codebook_dims
-        self.project_in = nn.Linear(dim, codebook_dims) if has_projections else nn.Identity()
-        self.project_out = nn.Linear(codebook_dims, dim) if has_projections else nn.Identity()
+        self.project_in = nn.Linear(dim, codebook_dims, bias = projection_has_bias) if has_projections else nn.Identity()
+        self.project_out = nn.Linear(codebook_dims, dim, bias = projection_has_bias) if has_projections else nn.Identity()
         self.has_projections = has_projections
 
         self.dim = dim
