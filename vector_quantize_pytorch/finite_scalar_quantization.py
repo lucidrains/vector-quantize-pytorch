@@ -48,7 +48,8 @@ class FSQ(Module):
         keep_num_codebooks_dim: Optional[bool] = None,
         scale: Optional[float] = None,
         allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64),
-        channel_first: bool = False
+        channel_first: bool = False,
+        projection_has_bias: bool = True
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -75,8 +76,8 @@ class FSQ(Module):
         self.channel_first = channel_first
 
         has_projections = self.dim != effective_codebook_dim
-        self.project_in = nn.Linear(self.dim, effective_codebook_dim) if has_projections else nn.Identity()
-        self.project_out = nn.Linear(effective_codebook_dim, self.dim) if has_projections else nn.Identity()
+        self.project_in = nn.Linear(self.dim, effective_codebook_dim, bias = projection_has_bias) if has_projections else nn.Identity()
+        self.project_out = nn.Linear(effective_codebook_dim, self.dim, bias = projection_has_bias) if has_projections else nn.Identity()
 
         self.has_projections = has_projections
 
