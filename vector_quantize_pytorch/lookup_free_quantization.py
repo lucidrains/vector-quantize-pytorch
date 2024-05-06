@@ -48,6 +48,18 @@ def log(t, eps = 1e-5):
 def entropy(prob):
     return (-prob * log(prob)).sum(dim=-1)
 
+# cosine sim linear
+
+class CosineSimLinear(Module):
+    def __init__(self, dim_in, dim_out, **kwargs):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(dim_in, dim_out))
+
+    def forward(self, x):
+        x = F.normalize(x, dim = -1)
+        w = F.normalize(self.weight, dim = 0)
+        return x @ w
+
 # class
 
 class LFQ(Module):
@@ -66,7 +78,8 @@ class LFQ(Module):
         frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
         use_code_agnostic_commit_loss = False,
         projection_has_bias = True,
-        soft_clamp_input_value = None
+        soft_clamp_input_value = None,
+        cosine_sim_project_in = False
     ):
         super().__init__()
 
@@ -82,7 +95,9 @@ class LFQ(Module):
         dim = default(dim, codebook_dims)
 
         has_projections = dim != codebook_dims
-        self.project_in = nn.Linear(dim, codebook_dims, bias = projection_has_bias) if has_projections else nn.Identity()
+
+        project_in_klass = CosineSimLinear if cosine_sim_project_in else nn.Linear
+        self.project_in = project_in_klass(dim, codebook_dims, bias = projection_has_bias) if has_projections else nn.Identity()
         self.project_out = nn.Linear(codebook_dims, dim, bias = projection_has_bias) if has_projections else nn.Identity()
         self.has_projections = has_projections
 
