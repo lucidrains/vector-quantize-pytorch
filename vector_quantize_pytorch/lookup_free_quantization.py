@@ -62,8 +62,9 @@ class LFQ(Module):
         straight_through_activation = nn.Identity(),
         num_codebooks = 1,
         keep_num_codebooks_dim = None,
-        codebook_scale = 1.,            # for residual LFQ, codebook scaled down by 2x at each layer
-        frac_per_sample_entropy = 1.    # make less than 1. to only use a random fraction of the probs for per sample entropy
+        codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
+        frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
+        use_code_agnostic_commit_loss = False
     ):
         super().__init__()
 
@@ -110,6 +111,7 @@ class LFQ(Module):
         # commitment loss
 
         self.commitment_loss_weight = commitment_loss_weight
+        self.use_code_agnostic_commit_loss = use_code_agnostic_commit_loss
 
         # for no auxiliary loss, during inference
 
@@ -259,8 +261,19 @@ class LFQ(Module):
 
         # commit loss
 
-        if self.training:
-            commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
+        if self.training and self.commitment_loss_weight > 0.:
+
+            if self.use_code_agnostic_commit_loss:
+                # credit goes to @MattMcPartlon for sharing this in https://github.com/lucidrains/vector-quantize-pytorch/issues/120#issuecomment-2095089337
+
+                commit_loss = F.mse_loss(
+                    original_input ** 2,
+                    codebook_value ** 2,
+                    reduction = 'none'
+                )
+
+            else:
+                commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
 
             if exists(mask):
                 commit_loss = commit_loss[mask]
