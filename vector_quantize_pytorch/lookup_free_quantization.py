@@ -7,6 +7,7 @@ An entropy penalty is used to encourage utilization.
 """
 
 from math import log2, ceil
+from functools import partial
 from collections import namedtuple
 
 import torch
@@ -51,14 +52,20 @@ def entropy(prob):
 # cosine sim linear
 
 class CosineSimLinear(Module):
-    def __init__(self, dim_in, dim_out, **kwargs):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        scale = 1.
+    ):
         super().__init__()
+        self.scale = scale
         self.weight = nn.Parameter(torch.randn(dim_in, dim_out))
 
     def forward(self, x):
         x = F.normalize(x, dim = -1)
         w = F.normalize(self.weight, dim = 0)
-        return x @ w
+        return (x @ w) * self.scale
 
 # class
 
@@ -79,7 +86,8 @@ class LFQ(Module):
         use_code_agnostic_commit_loss = False,
         projection_has_bias = True,
         soft_clamp_input_value = None,
-        cosine_sim_project_in = False
+        cosine_sim_project_in = False,
+        cosine_sim_project_in_scale = None
     ):
         super().__init__()
 
@@ -96,8 +104,13 @@ class LFQ(Module):
 
         has_projections = dim != codebook_dims
 
-        project_in_klass = CosineSimLinear if cosine_sim_project_in else nn.Linear
-        self.project_in = project_in_klass(dim, codebook_dims, bias = projection_has_bias) if has_projections else nn.Identity()
+        if cosine_sim_project_in:
+            cosine_sim_project_in = default(cosine_sim_project_in_scale, codebook_scale)
+            project_in_klass = partial(CosineSimLinear, scale = cosine_sim_project_in)
+        else:
+            project_in_klass = partial(nn.Linear, bias = projection_has_bias)
+
+        self.project_in = project_in_klass(dim, codebook_dims) if has_projections else nn.Identity()
         self.project_out = nn.Linear(codebook_dims, dim, bias = projection_has_bias) if has_projections else nn.Identity()
         self.has_projections = has_projections
 
