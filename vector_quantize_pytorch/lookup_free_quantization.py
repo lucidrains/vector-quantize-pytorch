@@ -87,7 +87,8 @@ class LFQ(Module):
         projection_has_bias = True,
         soft_clamp_input_value = None,
         cosine_sim_project_in = False,
-        cosine_sim_project_in_scale = None
+        cosine_sim_project_in_scale = None,
+        channel_first = None
     ):
         super().__init__()
 
@@ -97,8 +98,9 @@ class LFQ(Module):
         assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
         codebook_size = default(codebook_size, lambda: 2 ** dim)
-        codebook_dim = int(log2(codebook_size))
+        self.codebook_size = codebook_size
 
+        codebook_dim = int(log2(codebook_size))
         codebook_dims = codebook_dim * num_codebooks
         dim = default(dim, codebook_dims)
 
@@ -121,6 +123,10 @@ class LFQ(Module):
         keep_num_codebooks_dim = default(keep_num_codebooks_dim, num_codebooks > 1)
         assert not (num_codebooks > 1 and not keep_num_codebooks_dim)
         self.keep_num_codebooks_dim = keep_num_codebooks_dim
+
+        # channel first
+
+        self.channel_first = channel_first
 
         # straight through activation
 
@@ -174,6 +180,7 @@ class LFQ(Module):
         project_out = True
     ):
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
+        should_transpose = default(self.channel_first, is_img_or_video)
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, '... -> ... 1')
@@ -194,7 +201,7 @@ class LFQ(Module):
 
         # rearrange codes back to original shape
 
-        if is_img_or_video:
+        if should_transpose:
             codes = rearrange(codes, 'b ... d -> b d ...')
 
         return codes
@@ -218,10 +225,11 @@ class LFQ(Module):
         x = x.float()
 
         is_img_or_video = x.ndim >= 4
+        should_transpose = default(self.channel_first, is_img_or_video)
 
         # standardize image or video into (batch, seq, dimension)
 
-        if is_img_or_video:
+        if should_transpose:
             x = rearrange(x, 'b d ... -> b ... d')
             x, ps = pack_one(x, 'b * d')
 
@@ -333,7 +341,7 @@ class LFQ(Module):
 
         # reconstitute image or video dimensions
 
-        if is_img_or_video:
+        if should_transpose:
             x = unpack_one(x, ps, 'b * d')
             x = rearrange(x, 'b ... d -> b d ...')
 
