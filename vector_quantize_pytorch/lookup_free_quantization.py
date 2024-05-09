@@ -152,7 +152,7 @@ class LFQ(Module):
         # whether to soft clamp the input value from -value to value
 
         self.soft_clamp_input_value = soft_clamp_input_value
-        assert not exists(soft_clamp_input_value) or soft_clamp_input_value >= 1.
+        assert not exists(soft_clamp_input_value) or soft_clamp_input_value >= codebook_scale
 
         # for no auxiliary loss, during inference
 
