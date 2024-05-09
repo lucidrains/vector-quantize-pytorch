@@ -39,6 +39,7 @@ class ResidualLFQ(Module):
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
+        soft_clamp_input_value = None,
         **kwargs
     ):
         super().__init__()
@@ -59,10 +60,14 @@ class ResidualLFQ(Module):
             lfq = LFQ(
                 dim = codebook_dim,
                 codebook_scale = codebook_scale,
+                soft_clamp_input_value = soft_clamp_input_value,
                 **kwargs
             )
 
             self.layers.append(lfq)
+
+            if exists(soft_clamp_input_value):
+                soft_clamp_input_value *= 0.5
 
         assert all([not lfq.has_projections for lfq in self.layers])
 
