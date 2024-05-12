@@ -15,12 +15,14 @@ from torch.optim import Optimizer
 
 # helper functions
 
+
 def pack_one(t, pattern):
     return pack([t], pattern)
 
 
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
+
 
 class LatentQuantize(Module):
     def __init__(
@@ -41,7 +43,7 @@ class LatentQuantize(Module):
         Initializes the LatentQuantization module.
 
         Args:
-            levels (List[int]|init): The number of levels per codebook. 
+            levels (List[int]|init): The number of levels per codebook.
                 If an int is provided, it is used for all codebooks.
             dim (int): The dimensionality of the input tensor.
             num_codebooks (int): The number of codebooks to use.
@@ -49,7 +51,7 @@ class LatentQuantize(Module):
             optimize_values (Optional[bool]): Whether to optimize the values of the codebook. If not provided, it is set to True.
         """
         super().__init__()
-        
+
         self.dim = dim
         self.pad = pad
         self.in_place_codebook_optimizer = None
@@ -58,7 +60,7 @@ class LatentQuantize(Module):
         _equal_levels = False
         # if levels is an int, use it for all codebooks
         if isinstance(levels, int):
-            _levels = _levels.repeat(dim)
+            _levels = _levels.repeat(num_codebooks)
             _equal_levels = True
         elif len(set(levels)) == 1:
             _equal_levels = True
@@ -96,7 +98,6 @@ class LatentQuantize(Module):
         assert not (num_codebooks > 1 and not keep_num_codebooks_dim)
         self.keep_num_codebooks_dim = keep_num_codebooks_dim
 
-
         has_projections = self.dim != effective_codebook_dim
         self.project_in = (
             nn.Linear(self.dim, effective_codebook_dim)
@@ -123,29 +124,16 @@ class LatentQuantize(Module):
             else torch.arange(level) / level - 0.5
             for level in _levels
         ]  # ensure zero is in the middle and start is always -0.5
-        values_per_latent = (
-            torch.stack(values_per_latent, dim=0)
-            if _equal_levels
-            else values_per_latent
-        )
 
         # test, and check whether it would be in the parameters of the model or not
         if optimize_values:
-            self.values_per_latent = (
-                nn.Parameter(values_per_latent)
-                if self._equal_levels
-                else nn.ParameterList(
-                    [nn.Parameter(values) for values in values_per_latent]
-                )
+            self.values_per_latent = nn.ParameterList(
+                [nn.Parameter(values) for values in values_per_latent]
             )
             if in_place_codebook_optimizer is not None:
-                self.in_place_codebook_optimizer = (
-                    in_place_codebook_optimizer([self.values_per_latent])
-                    if self._equal_levels
-                    else in_place_codebook_optimizer(self.values_per_latent)
+                self.in_place_codebook_optimizer = in_place_codebook_optimizer(
+                    self.values_per_latent
                 )
-        elif _equal_levels:
-            self.register_buffer("values_per_latent", values_per_latent)
         else:
             self.values_per_latent = values_per_latent  # are there any scenarios where this would have its gradients updated?
 
@@ -166,26 +154,22 @@ class LatentQuantize(Module):
         def distance(x, y):
             return torch.abs(x - y)
 
-        if self._equal_levels:
-            index = torch.argmin(distance(z[..., None], self.values_per_latent), dim=-1)
-            quantize = self.values_per_latent[torch.arange(self.dim), index]
-        else:
-            index = torch.stack(
-                [
-                    torch.argmin(
-                        distance(z[..., i, None], self.values_per_latent[i]), dim=-1
-                    )
-                    for i in range(self.codebook_dim)
-                ],
-                dim=-1,
-            )
-            quantize = torch.stack(
-                [
-                    self.values_per_latent[i][index[..., i]]
-                    for i in range(self.codebook_dim)
-                ],
-                dim=-1,
-            )
+        index = torch.stack(
+            [
+                torch.argmin(
+                    distance(z[..., i, None], self.values_per_latent[i]), dim=-1
+                )
+                for i in range(self.codebook_dim)
+            ],
+            dim=-1,
+        )
+        quantize = torch.stack(
+            [
+                self.values_per_latent[i][index[..., i]]
+                for i in range(self.codebook_dim)
+            ],
+            dim=-1,
+        )
 
         quantize = z + (quantize - z).detach()
         # half_width = self._levels // 2 / 2  # Renormalize to [-0.5, 0.5].

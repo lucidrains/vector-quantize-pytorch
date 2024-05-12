@@ -1,5 +1,14 @@
 # Work on LatentQuantize
 
+[]
+
+* What is the difference between codebook size, dim, num codebooks ?? How to compute those, in particular need to check coherence between case [5,5,5] and 5 (should lead to the same...)
+
+[Commit 4]
+
+* Add test for 'int' case: fails! Issue with CPU memory... uncovering an error in building the levels in that case: it uses the 'dim' arguments passed in the __init__, instead of the number of codebooks or codebook_dim?
+* Fix: same level case, by simply elimintating the '_equal_levels' variable, and ensuring that both cases are treated the same way. In particular, 'values_per_latent' parameter has the same type and shape (that is, a ParameterList)
+
 [Commit 3]
 
 * The dim attribute is not optional: change of the docstring, remove the use of 'default' computation.
