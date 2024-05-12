@@ -57,13 +57,9 @@ class LatentQuantize(Module):
         self.in_place_codebook_optimizer = None
         _levels = torch.tensor(levels, dtype=int32)
 
-        _equal_levels = False
         # if levels is an int, use it for all codebooks
         if isinstance(levels, int):
             _levels = _levels.repeat(num_codebooks)
-            _equal_levels = True
-        elif len(set(levels)) == 1:
-            _equal_levels = True
 
         self.register_buffer(
             "commitment_loss_weight",
@@ -74,9 +70,6 @@ class LatentQuantize(Module):
             "quantization_loss_weight",
             torch.tensor(quantization_loss_weight, dtype=torch.float32),
             persistent=False,
-        )
-        self.register_buffer(
-            "_equal_levels", torch.tensor(_equal_levels), persistent=False
         )
         self.register_buffer("_levels", _levels, persistent=False)
 

@@ -4,6 +4,10 @@
 
 * What is the difference between codebook size, dim, num codebooks ?? How to compute those, in particular need to check coherence between case [5,5,5] and 5 (should lead to the same...)
 
+[Commit 5]
+
+* Clean the _equal_level part
+
 [Commit 4]
 
 * Add test for 'int' case: fails! Issue with CPU memory... uncovering an error in building the levels in that case: it uses the 'dim' arguments passed in the __init__, instead of the number of codebooks or codebook_dim?
