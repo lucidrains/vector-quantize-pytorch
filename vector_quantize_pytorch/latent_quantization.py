@@ -187,8 +187,6 @@ class LatentQuantize(Module):
     def indices_to_codes(self, indices: Tensor, project_out=True) -> Tensor:
         """Inverse of `codes_to_indices`."""
 
-        is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
-
         indices = rearrange(indices, "... -> ... 1")
         codes_non_centered = (indices // self._basis) % self._levels
         codes = self._scale_and_shift_inverse(codes_non_centered)
@@ -199,8 +197,7 @@ class LatentQuantize(Module):
         if project_out:
             codes = self.project_out(codes)
 
-        if is_img_or_video:
-            codes = rearrange(codes, "b ... d -> b d ...")
+        codes = rearrange(codes, "b ... d -> b d ...")
 
         return codes
 
@@ -211,14 +208,10 @@ class LatentQuantize(Module):
         codes = rearrange(codes, "b n c d -> b n (c d)")
 
         out = self.project_out(codes)
+        out = unpack_one(out, ps, "b * d")
+        out = rearrange(out, "b ... d -> b d ...")
 
-        # reconstitute image or video dimensions
-
-        if is_img_or_video:
-            out = unpack_one(out, ps, "b * d")
-            out = rearrange(out, "b ... d -> b d ...")
-
-            indices = unpack_one(indices, ps, "b * c")
+        indices = unpack_one(indices, ps, "b * c")
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, "... 1 -> ...")
@@ -233,14 +226,11 @@ class LatentQuantize(Module):
         c - number of codebook dim
         """
 
-        is_img_or_video = z.ndim >= 4
         original_input = z
-        # standardize image or video into (batch, seq, dimension)
         should_inplace_optimize = self.in_place_codebook_optimizer is not None
 
-        if is_img_or_video:
-            z = rearrange(z, "b d ... -> b ... d")
-            z, ps = pack_one(z, "b * d")
+        z = rearrange(z, "b d ... -> b ... d")
+        z, ps = pack_one(z, "b * d")
 
         assert (
             z.shape[-1] == self.dim
@@ -256,13 +246,10 @@ class LatentQuantize(Module):
         codes = rearrange(codes, "b n c d -> b n (c d)")
 
         out = self.project_out(codes)
+        out = unpack_one(out, ps, "b * d")
+        out = rearrange(out, "b ... d -> b d ...")
 
-        # reconstitute image or video dimensions
-        if is_img_or_video:
-            out = unpack_one(out, ps, "b * d")
-            out = rearrange(out, "b ... d -> b d ...")
-
-            indices = unpack_one(indices, ps, "b * c")
+        indices = unpack_one(indices, ps, "b * c")
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, "... 1 -> ...")
@@ -288,11 +275,10 @@ class LatentQuantize(Module):
             codes = rearrange(codes, "b n c d -> b n (c d)")
             out = self.project_out(codes)
 
-            if is_img_or_video:
-                out = unpack_one(out, ps, "b * d")
-                out = rearrange(out, "b ... d -> b d ...")
+            out = unpack_one(out, ps, "b * d")
+            out = rearrange(out, "b ... d -> b d ...")
 
-                indices = unpack_one(indices, ps, "b * c")
+            indices = unpack_one(indices, ps, "b * c")
 
             if not self.keep_num_codebooks_dim:
                 indices = rearrange(indices, "... 1 -> ...")

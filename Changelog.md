@@ -2,7 +2,12 @@
 
 []
 
-* What is the difference between codebook size, dim, num codebooks ?? How to compute those, in particular need to check coherence between case [5,5,5] and 5 (should lead to the same...)
+* Question: What is the difference between codebook size, dim, num codebooks ?? How to compute those, in particular need to check coherence between case [5,5,5] and 5 (should lead to the same...)
+
+[Commit 6]
+
+* Fix: For time series, the 'features' dimension should match the 'dim' parameter of the LatentQuantizer.
+* Add: more tests to check time series, images and video features.
 
 [Commit 5]
 
