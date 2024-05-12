@@ -1,5 +1,12 @@
 # Work on LatentQuantize
 
+[Commit 2]
+
+* Format and lint of code
+* Remove: helper function 'exists' and 'defaults'. They added a level of complexity without adding lisibility (in particular 'default' and its absence of docstring)
+
+[Commit 1]
+
 * Add a test file to check the refacto.
 * Add radon to compute complexities of code, and Rich for better output.
 * Add wily to follow the improvement of the metrics through the refacto.
