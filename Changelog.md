@@ -1,5 +1,10 @@
 # Work on LatentQuantize
 
+[Commit 3]
+
+* The dim attribute is not optional: change of the docstring, remove the use of 'default' computation.
+* Add a test dedicated to "same level" case of LatentQuantization --> uncover an error in the quantize method.
+
 [Commit 2]
 
 * Format and lint of code

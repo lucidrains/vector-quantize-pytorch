@@ -15,17 +15,12 @@ from torch.optim import Optimizer
 
 # helper functions
 
-
 def pack_one(t, pattern):
     return pack([t], pattern)
 
 
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
-
-
-# main class
-
 
 class LatentQuantize(Module):
     def __init__(
@@ -46,13 +41,16 @@ class LatentQuantize(Module):
         Initializes the LatentQuantization module.
 
         Args:
-            levels (List[int]|init): The number of levels per codebook. If an int is provided, it is used for all codebooks.
-            dim (Optional[int]): The dimensionality of the input tensor. If not provided, it is calculated based on the number of levels and the number of codebooks.
+            levels (List[int]|init): The number of levels per codebook. 
+                If an int is provided, it is used for all codebooks.
+            dim (int): The dimensionality of the input tensor.
             num_codebooks (int): The number of codebooks to use.
             keep_num_codebooks_dim (Optional[bool]): Whether to keep the number of codebooks dimension in the output tensor. If not provided, it is set to True if num_codebooks > 1, otherwise False.
             optimize_values (Optional[bool]): Whether to optimize the values of the codebook. If not provided, it is set to True.
         """
         super().__init__()
+        
+        self.dim = dim
         self.pad = pad
         self.in_place_codebook_optimizer = None
         _levels = torch.tensor(levels, dtype=int32)
@@ -98,7 +96,6 @@ class LatentQuantize(Module):
         assert not (num_codebooks > 1 and not keep_num_codebooks_dim)
         self.keep_num_codebooks_dim = keep_num_codebooks_dim
 
-        self.dim = dim if dim else len(_levels) * num_codebooks
 
         has_projections = self.dim != effective_codebook_dim
         self.project_in = (
