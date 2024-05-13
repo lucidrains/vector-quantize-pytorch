@@ -26,6 +26,15 @@ def identity(t):
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
 
+def Sequential(*modules):
+    modules = [*filter(exists, modules)]
+    if len(modules) == 0:
+        return None
+    elif len(modules) == 1:
+        return modules[0]
+
+    return nn.Sequential(*modules)
+
 def cdist(x, y):
     x2 = reduce(x ** 2, 'b n d -> b n', 'sum')
     y2 = reduce(y ** 2, 'b n d -> b n', 'sum')
@@ -702,6 +711,7 @@ class VectorQuantize(nn.Module):
         kmeans_iters = 10,
         sync_kmeans = True,
         use_cosine_sim = False,
+        layernorm_after_project_in = False, # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
         threshold_ema_dead_code = 0,
         channel_last = True,
         accept_image_fmap = False,
@@ -721,7 +731,7 @@ class VectorQuantize(nn.Module):
         in_place_codebook_optimizer: Callable[..., Optimizer] = None, # Optimizer used to update the codebook embedding if using learnable_codebook
         affine_param = False,
         affine_param_batch_decay = 0.99,
-        affine_param_codebook_decay = 0.9,
+        affine_param_codebook_decay = 0.9, 
         sync_update_v = 0. # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
@@ -733,7 +743,12 @@ class VectorQuantize(nn.Module):
         codebook_input_dim = codebook_dim * heads
 
         requires_projection = codebook_input_dim != dim
-        self.project_in = nn.Linear(dim, codebook_input_dim) if requires_projection else nn.Identity()
+
+        self.project_in = Sequential(
+            nn.Linear(dim, codebook_input_dim),
+            nn.LayerNorm(codebook_input_dim) if layernorm_after_project_in else None
+        ) if requires_projection else nn.Identity()
+
         self.project_out = nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
 
         self.has_projections = requires_projection
