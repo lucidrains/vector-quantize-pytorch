@@ -4,7 +4,8 @@ Disentanglement via Latent Quantization
 Code adapted from Jax version in https://github.com/kylehkhsu/latent_quantization
 """
 
-from typing import Callable, Optional, Union
+from __future__ import annotations
+from typing import Callable, List
 
 import torch
 import torch.nn.functional as F
@@ -27,14 +28,14 @@ def unpack_one(t, ps, pattern):
 class LatentQuantize(Module):
     def __init__(
         self,
-        levels: Union[list[int], int],
+        levels: List[int] | int,
         dim: int,
-        commitment_loss_weight: Optional[float] = 0.1,
-        quantization_loss_weight: Optional[float] = 0.1,
+        commitment_loss_weight: float | None = 0.1,
+        quantization_loss_weight: float | None = 0.1,
         num_codebooks: int = 1,
         codebook_dim: int = -1,
-        keep_num_codebooks_dim: Optional[bool] = None,
-        optimize_values: Optional[bool] = True,
+        keep_num_codebooks_dim: bool | None = None,
+        optimize_values: bool | None = True,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
         ] = None,  # Optimizer used to update the codebook embedding if using learnable_codebook

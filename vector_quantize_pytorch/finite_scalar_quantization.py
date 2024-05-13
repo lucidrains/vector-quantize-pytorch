@@ -3,7 +3,8 @@ Finite Scalar Quantization: VQ-VAE Made Simple - https://arxiv.org/abs/2309.1550
 Code adapted from Jax version in Appendix A.1
 """
 
-from typing import List, Tuple, Optional
+from __future__ import annotations
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -43,10 +44,10 @@ class FSQ(Module):
     def __init__(
         self,
         levels: List[int],
-        dim: Optional[int] = None,
+        dim: int | None = None,
         num_codebooks = 1,
-        keep_num_codebooks_dim: Optional[bool] = None,
-        scale: Optional[float] = None,
+        keep_num_codebooks_dim: bool | None = None,
+        scale: float | None = None,
         allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64),
         channel_first: bool = False,
         projection_has_bias: bool = True
