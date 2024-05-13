@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from vector_quantize_pytorch.latent_quantization import LatentQuantize
@@ -21,7 +22,7 @@ class TestLatentQuantizer:
 
         assert image_feats.shape == quantized.shape
         assert (quantized == self.quantizer.indices_to_codes(indices)).all()
-    
+
     def test_forward_video(self):
         video_feats = torch.randn(1, 16, 10, 32, 32)
 
@@ -86,7 +87,7 @@ class TestLatentQuantizerInt:
         dim=16,  # input dim
         commitment_loss_weight=0.1,
         quantization_loss_weight=0.1,
-        # num_codebooks=3,
+        codebook_dim=3,
     )
 
     def test_init_int(self):
@@ -99,3 +100,14 @@ class TestLatentQuantizerInt:
 
         assert image_feats.shape == quantized.shape
         assert (quantized == self.quantizer_int.indices_to_codes(indices)).all()
+
+
+class TestLatentQuantizerBadInt:
+    with pytest.raises(RuntimeError):
+        quantizer_int = LatentQuantize(
+            levels=5,  # number of levels per codebook dimension
+            dim=16,  # input dim
+            commitment_loss_weight=0.1,
+            quantization_loss_weight=0.1,
+            # codebook_dim=3,
+        )

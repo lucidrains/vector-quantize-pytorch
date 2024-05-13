@@ -32,12 +32,12 @@ class LatentQuantize(Module):
         commitment_loss_weight: Optional[float] = 0.1,
         quantization_loss_weight: Optional[float] = 0.1,
         num_codebooks: int = 1,
+        codebook_dim: int = -1,
         keep_num_codebooks_dim: Optional[bool] = None,
         optimize_values: Optional[bool] = True,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
         ] = None,  # Optimizer used to update the codebook embedding if using learnable_codebook
-        pad: bool = False,  # remove all traces later TODO
     ):
         """
         Initializes the LatentQuantization module.
@@ -46,21 +46,27 @@ class LatentQuantize(Module):
             levels (List[int]|init): The number of levels per codebook.
                 If an int is provided, it is used for all codebooks.
             dim (int): The dimensionality of the input tensor.
+                The input tensor is expected to be of shape [B D ...]
             num_codebooks (int): The number of codebooks to use.
+                (default is 1)
+            codebook_dim (int): the dimension of the codebook.
+                If levels is a list, codebook_dim is the length of the list.
+                (default to -1) 
             keep_num_codebooks_dim (Optional[bool]): Whether to keep the number of codebooks dimension in the output tensor. If not provided, it is set to True if num_codebooks > 1, otherwise False.
             optimize_values (Optional[bool]): Whether to optimize the values of the codebook. If not provided, it is set to True.
         """
         super().__init__()
 
         self.dim = dim
-        self.pad = pad
-        self.in_place_codebook_optimizer = None
+        self.in_place_codebook_optimizer = in_place_codebook_optimizer
         _levels = torch.tensor(levels, dtype=int32)
 
         # if levels is an int, use it for all codebooks
         if isinstance(levels, int):
-            _levels = _levels.repeat(num_codebooks)
-
+            try:
+                _levels = _levels.repeat(codebook_dim)
+            except RuntimeError as e:
+                raise e
         self.register_buffer(
             "commitment_loss_weight",
             torch.tensor(commitment_loss_weight, dtype=torch.float32),
@@ -78,10 +84,9 @@ class LatentQuantize(Module):
         )
         self.register_buffer("_basis", _basis, persistent=False)
 
-        codebook_dim = len(_levels)
-        self.codebook_dim = codebook_dim
+        self.codebook_dim = codebook_dim if codebook_dim > 0 else len(_levels)
 
-        effective_codebook_dim = codebook_dim * num_codebooks
+        effective_codebook_dim = self.codebook_dim * num_codebooks
         self.num_codebooks = num_codebooks
         self.effective_codebook_dim = effective_codebook_dim
 

@@ -3,6 +3,14 @@
 []
 
 * Question: What is the difference between codebook size, dim, num codebooks ?? How to compute those, in particular need to check coherence between case [5,5,5] and 5 (should lead to the same...)
+* Question: the attribute 'num_codebooks' never seems to be used, except for reshaping. Is the length of 'levels' the number of codebooks ?
+
+[Commit 7]
+
+* Add a 'codebook_dim' parameter to the __init__ function, default to -1. Used only if 'levels' is an int. The positivity of the value is checked to ensure the construction of a list of codebook_dim times the value 'levels'.
+* Add a test to check the previous point.
+* Fix: the variable 'in_place_codebook_optimizer' passed in __init__ was immediately passed to 'None' as an attribute.
+* Remove: pad
 
 [Commit 6]
 
