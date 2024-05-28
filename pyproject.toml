@@ -33,7 +33,7 @@ Homepage = "https://pypi.org/project/vector-quantize-pytorch/"
 Repository = "https://github.com/lucidrains/vector-quantizer-pytorch"
 
 [project.optional-dependencies]
-examples = ["tqdm", "torchvision"]
+examples = ["lightning", "torchvision", "tensorboard"]
 
 [build-system]
 requires = ["hatchling"]
