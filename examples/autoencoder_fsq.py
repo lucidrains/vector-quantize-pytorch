@@ -7,15 +7,14 @@ import math
 import torch
 from lightning import LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import RichModelSummary, RichProgressBar
+from lightning.pytorch.loggers import TensorBoardLogger
 from torch import nn
 from torch.nn.functional import l1_loss
 
+from examples.data import LitFashionMNIST
 from vector_quantize_pytorch import FSQ
 
-from .data import LitFashionMNIST
-
 seed_everything(1234, workers=True)
-
 
 
 class SimpleFSQAutoEncoder(LightningModule):
@@ -34,7 +33,7 @@ class SimpleFSQAutoEncoder(LightningModule):
             nn.Conv2d(32, len(levels), kernel_size=1),
         )
 
-        self.quantizer = FSQ(levels)
+        self.quantizer = FSQ(self.levels)
 
         self.decoder = nn.Sequential(
             nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
@@ -59,7 +58,7 @@ class SimpleFSQAutoEncoder(LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         self.log(
             "train_indices",
-            indices.unique().numel() / self.codebook_size * 100,
+            indices.unique().numel() / self.num_codes * 100,
             prog_bar=True,
         )
 
@@ -71,7 +70,7 @@ class SimpleFSQAutoEncoder(LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         self.log(
             "val_indices",
-            indices.unique().numel() / self.codebook_size * 100,
+            indices.unique().numel() / self.num_codes * 100,
             prog_bar=True,
         )
 
@@ -80,11 +79,12 @@ class SimpleFSQAutoEncoder(LightningModule):
         return optimizer
 
 
-model = FSQ()
+model = SimpleFSQAutoEncoder()
 
 data = LitFashionMNIST()
+logger = TensorBoardLogger(save_dir=".", name="FSQ")
 trainer = Trainer(
-    logger=True, max_epochs=100, callbacks=[RichProgressBar(), RichModelSummary()]
+    logger=True, max_epochs=10, callbacks=[RichProgressBar(), RichModelSummary()]
 )
 
 trainer.fit(model=model, datamodule=data)

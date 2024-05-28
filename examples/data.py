@@ -8,7 +8,7 @@ from torchvision.transforms import v2
 
 
 class LitFashionMNIST(LightningDataModule):
-    def __init__(self, data_dir, batch_size: int = 256):
+    def __init__(self, data_dir: str = ".", batch_size: int = 256):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size

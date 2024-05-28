@@ -6,12 +6,12 @@ from math import log2
 import torch
 from lightning import LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import RichModelSummary, RichProgressBar
+from lightning.pytorch.loggers import TensorBoardLogger
 from torch import nn
 from torch.nn.functional import l1_loss
 
+from examples.data import LitFashionMNIST
 from vector_quantize_pytorch import LFQ
-
-from .data import LitFashionMNIST
 
 seed_everything(1234, workers=True)
 
@@ -98,8 +98,9 @@ class LFQAutoEncoder(LightningModule):
 
 model = LFQAutoEncoder()
 data = LitFashionMNIST()
+logger = TensorBoardLogger(save_dir=".", name="LFQ")
 trainer = Trainer(
-    logger=True, max_epochs=100, callbacks=[RichProgressBar(), RichModelSummary()]
+    logger=logger, max_epochs=10, callbacks=[RichProgressBar(), RichModelSummary()]
 )
 
 trainer.fit(model=model, datamodule=data)

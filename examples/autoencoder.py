@@ -4,12 +4,12 @@
 import torch
 from lightning import LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import RichModelSummary, RichProgressBar
+from lightning.pytorch.loggers import TensorBoardLogger
 from torch import nn
 from torch.nn.functional import l1_loss
 
+from examples.data import LitFashionMNIST
 from vector_quantize_pytorch import VectorQuantize
-
-from .data import LitFashionMNIST
 
 seed_everything(1234, workers=True)
 
@@ -34,19 +34,7 @@ class SimpleVQAutoEncoder(LightningModule):
             nn.GELU(),
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2),
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.GELU(),
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2),
         )
-        self.decoder = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-            nn.GELU(),
-            nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         self.decoder = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
@@ -94,19 +82,15 @@ class SimpleVQAutoEncoder(LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
-
-
-    def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer
 
 
 model = SimpleVQAutoEncoder()
 data = LitFashionMNIST()
+logger = TensorBoardLogger(save_dir=".", name="base_vqvae")
 trainer = Trainer(
-    logger=True, max_epochs=100, callbacks=[RichProgressBar(), RichModelSummary()]
+    logger=logger, max_epochs=10, callbacks=[RichProgressBar(), RichModelSummary()]
 )
 
 trainer.fit(model=model, datamodule=data)
