@@ -24,7 +24,7 @@ class SimpleVQAutoEncoder(LightningModule):
     ):
         super().__init__()
         self.dim = dim
-        self.codbook_size = codebook_size
+        self.codebook_size = codebook_size
         self.alpha = alpha
         self.lr = lr
 
@@ -34,7 +34,19 @@ class SimpleVQAutoEncoder(LightningModule):
             nn.GELU(),
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2),
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.GELU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
         )
+        self.decoder = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         self.decoder = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
@@ -65,6 +77,7 @@ class SimpleVQAutoEncoder(LightningModule):
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
+        return loss
 
     def validation_step(self, batch, batch_idx):
         input, _ = batch
@@ -78,6 +91,12 @@ class SimpleVQAutoEncoder(LightningModule):
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        return optimizer
+
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
