@@ -1,6 +1,7 @@
 # FashionMnist VQ experiment with various settings.
 # From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
 
+import torch
 from lightning import LightningDataModule, LightningModule, Trainer, seed_everything
 from torch import nn
 from torch.utils.data import DataLoader, random_split
@@ -22,33 +23,27 @@ class SimpleVQAutoEncoder(LightningModule):
     ):
         super().__init__()
         self.dim = dim
-        self.codbook_size = codebook_size
+        self.codebook_size = codebook_size
         self.alpha = alpha
         self.lr = lr
 
-        self.encoder = nn.ModuleList(
-            [
-                nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.GELU(),
-                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-            ]
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.GELU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
         )
-        self.decoder = nn.ModuleList(
-            [
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-                nn.GELU(),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
-            ]
+        self.decoder = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
-        self.quantizer = (
-            VectorQuantize(
-                dim=dim, codebook_size=codebook_size, accept_image_fmap=True
-            ),
-        )
+        self.quantizer = VectorQuantize(
+                dim=dim, codebook_size=self.codebook_size, accept_image_fmap=True
+            )
 
     def forward(self, x):
         feat = self.encoder(x)
@@ -58,8 +53,9 @@ class SimpleVQAutoEncoder(LightningModule):
         return out.clamp(-1, 1), indices, commit_loss
 
     def training_step(self, batch, batch_idx):
-        out, indices, commit_loss = self.forward(batch)
-        rec_loss = (out - batch).abs().mean()
+        input, _ = batch
+        out, indices, commit_loss = self.forward(input)
+        rec_loss = (out - input).abs().mean()
         loss = rec_loss + self.alpha * commit_loss
         self.log("train_loss", loss, prog_bar=True)
         self.log("train_commit_loss", commit_loss, prog_bar=True)
@@ -68,10 +64,12 @@ class SimpleVQAutoEncoder(LightningModule):
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        out, indices, commit_loss = self.forward(batch)
-        rec_loss = (out - batch).abs().mean()
+        input, _ = batch
+        out, indices, commit_loss = self.forward(input)
+        rec_loss = (out - input).abs().mean()
         loss = rec_loss + self.alpha * commit_loss
         self.log("val_loss", loss, prog_bar=True)
         self.log("val_commit_loss", commit_loss, prog_bar=True)
@@ -80,14 +78,20 @@ class SimpleVQAutoEncoder(LightningModule):
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        return optimizer
+
 
 
 class LitFashionMNIST(LightningDataModule):
-    def __init__(self, data_dir, batch_size: int = 256):
+    def __init__(self, data_dir = ".", batch_size: int = 256):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
-        self.transforms = v2.Compose([v2.ToTensor(), v2.Normalize((0.5,), (0.5,))])
+        self.transforms = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True) , v2.Normalize((0.5,), (0.5,))])
 
     def prepare_data(self):
         # download
@@ -107,7 +111,7 @@ class LitFashionMNIST(LightningDataModule):
 
 
 model = SimpleVQAutoEncoder()
-data = FashionMNIST()
+data = LitFashionMNIST()
 trainer = Trainer(logger=True, max_epochs=100)
 
 trainer.fit(model=model, datamodule=data)
