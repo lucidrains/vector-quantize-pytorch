@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import random
 from math import ceil
 from functools import partial
 from itertools import zip_longest
+from typing import List
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 import torch.nn.functional as F
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
@@ -122,7 +125,7 @@ class ResidualVQ(nn.Module):
         self,
         x,
         mask = None,
-        indices = None,
+        indices: Tensor | List[Tensor] | None = None,
         return_all_codes = False,
         sample_codebook_temp = None,
         freeze_codebook = False,
@@ -139,6 +142,9 @@ class ResidualVQ(nn.Module):
 
         all_losses = []
         all_indices = []
+
+        if isinstance(indices, list):
+            indices = torch.stack(indices)
 
         if return_loss:
             assert not torch.any(indices == -1), 'some of the residual vq indices were dropped out. please use indices derived when the module is in eval mode to derive cross entropy loss'
