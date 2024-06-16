@@ -262,7 +262,7 @@ class GroupedResidualFSQ(Module):
 
         forward_kwargs = dict(
             return_all_codes = return_all_codes,
-            rand_quantize_dropout_fixed_seed = random.randint(0, 10_000_000)
+            rand_quantize_dropout_fixed_seed = random.randint(0, int(1e7))
         )
 
         # invoke residual vq on each group
