@@ -50,7 +50,8 @@ class FSQ(Module):
         scale: float | None = None,
         allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64),
         channel_first: bool = False,
-        projection_has_bias: bool = True
+        projection_has_bias: bool = True,
+        return_indices = False,
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -81,11 +82,11 @@ class FSQ(Module):
         self.project_out = nn.Linear(effective_codebook_dim, self.dim, bias = projection_has_bias) if has_projections else nn.Identity()
 
         self.has_projections = has_projections
-
-        self.codebook_size = self._levels.prod().item()
-
-        implicit_codebook = self._indices_to_codes(torch.arange(self.codebook_size))
-        self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
+        self.return_indices = return_indices
+        if return_indices:
+            self.codebook_size = self._levels.prod().item()
+            implicit_codebook = self._indices_to_codes(torch.arange(self.codebook_size))
+            self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
 
         self.allowed_dtypes = allowed_dtypes
 
@@ -176,7 +177,9 @@ class FSQ(Module):
             z = z.float()
 
         codes = self.quantize(z)
-        indices = self.codes_to_indices(codes)
+        indices = None
+        if self.return_indices:
+            indices = self.codes_to_indices(codes)
 
         codes = rearrange(codes, 'b n c d -> b n (c d)')
 
@@ -197,7 +200,7 @@ class FSQ(Module):
 
             indices = unpack_one(indices, ps, 'b * c')
 
-        if not self.keep_num_codebooks_dim:
+        if not self.keep_num_codebooks_dim and self.return_indices:
             indices = rearrange(indices, '... 1 -> ...')
 
         # return quantized output and indices
