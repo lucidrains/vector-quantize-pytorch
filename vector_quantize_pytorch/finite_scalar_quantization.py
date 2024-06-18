@@ -51,7 +51,7 @@ class FSQ(Module):
         allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64),
         channel_first: bool = False,
         projection_has_bias: bool = True,
-        return_indices = False,
+        return_indices = True,
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -82,6 +82,7 @@ class FSQ(Module):
         self.project_out = nn.Linear(effective_codebook_dim, self.dim, bias = projection_has_bias) if has_projections else nn.Identity()
 
         self.has_projections = has_projections
+
         self.return_indices = return_indices
         if return_indices:
             self.codebook_size = self._levels.prod().item()
@@ -130,6 +131,7 @@ class FSQ(Module):
 
     def indices_to_codes(self, indices):
         """ Inverse of `codes_to_indices`. """
+        assert exists(indices)
 
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 

@@ -1,6 +1,6 @@
 [project]
 name = "vector-quantize-pytorch"
-version = "1.14.27"
+version = "1.14.28"
 description = "Vector Quantization - Pytorch"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
@@ -45,6 +45,11 @@ dev-dependencies = [
     "ruff>=0.4.2",
     "pytest>=8.2.0",
     "pytest-cov>=5.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
 ]
 
 [tool.hatch.metadata]

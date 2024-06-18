@@ -1,6 +1,9 @@
 import torch
 import pytest
 
+def exists(v):
+    return v is not None
+
 def test_vq():
     from vector_quantize_pytorch import VectorQuantize
 
@@ -157,6 +160,18 @@ def test_fsq():
     xhat, indices = quantizer(x)
 
     assert torch.all(xhat == quantizer.indices_to_codes(indices))
+
+def test_fsq_without_indices():
+    import torch
+    from vector_quantize_pytorch import FSQ
+
+    levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
+    quantizer = FSQ(levels, return_indices = False)
+
+    x = torch.randn(1, 1024, 4) # 4 since there are 4 levels
+    xhat, indices = quantizer(x)
+
+    assert not exists(indices)
 
 def test_rfsq():
     import torch
