@@ -88,7 +88,9 @@ class LFQ(Module):
         soft_clamp_input_value = None,
         cosine_sim_project_in = False,
         cosine_sim_project_in_scale = None,
-        channel_first = None
+        channel_first = None,
+        experimental_softplus_entropy_loss = False,
+        entropy_loss_offset = 5.,  # how much to shift the loss before softplus
     ):
         super().__init__()
 
@@ -153,6 +155,11 @@ class LFQ(Module):
 
         self.soft_clamp_input_value = soft_clamp_input_value
         assert not exists(soft_clamp_input_value) or soft_clamp_input_value >= codebook_scale
+
+        # whether to make the entropy loss positive through a softplus (experimental, please report if this worked or not in discussions)
+
+        self.entropy_loss_offset = entropy_loss_offset
+        self.experimental_softplus_entropy_loss = experimental_softplus_entropy_loss
 
         # for no auxiliary loss, during inference
 
@@ -307,6 +314,11 @@ class LFQ(Module):
         else:
             # if not training, just return dummy 0
             entropy_aux_loss = per_sample_entropy = codebook_entropy = self.zero
+
+        # whether to make the entropy loss positive or not through a (shifted) softplus
+
+        if self.training and self.experimental_softplus_entropy_loss:
+            entropy_aux_loss = F.softplus(entropy_aux_loss + self.entropy_loss_offset)
 
         # commit loss
 
