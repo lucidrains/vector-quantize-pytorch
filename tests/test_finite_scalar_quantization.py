@@ -32,6 +32,12 @@ class TestFSQNoIndices:
 
         assert indices is None
 
+    def test_forward_images(self):
+        image_feats = torch.randn(1, 4, 32, 32)
+        _, indices = self.quantizer(image_feats)
+
+        assert indices is None
+
 class TestFSQWithDim:
     levels = [8,5,5,5]
     dim = 16

@@ -23,10 +23,10 @@ def unpack_one(t, ps, pattern):
 # tensor helpers
 
 
-def round_ste(z: Tensor) -> Tensor:
+def round_ste(features: Tensor) -> Tensor:
     """Round with straight through gradients."""
-    zhat = z.round()
-    return z + (zhat - z).detach()
+    zhat = features.round()
+    return features + (zhat - features).detach()
 
 
 # main class
@@ -92,16 +92,16 @@ class FSQ(Module):
 
         self.allowed_dtypes = allowed_dtypes
 
-    def bound(self, z, eps: float = 1e-3):
-        """Bound `z`, an array of shape (..., d)."""
+    def bound(self, features, eps: float = 1e-3):
+        """Bound `features`, an array of shape (..., d)."""
         half_l = (self._levels - 1) * (1 + eps) / 2
         offset = torch.where(self._levels % 2 == 0, 0.5, 0.0)
         shift = (offset / half_l).atanh()
-        return (z + shift).tanh() * half_l - offset
+        return (features + shift).tanh() * half_l - offset
 
-    def quantize(self, z):
-        """Quantizes z, returns quantized zhat, same shape as z."""
-        quantized = round_ste(self.bound(z))
+    def quantize(self, features):
+        """Quantizes features, returns quantized zhat, same shape as features."""
+        quantized = round_ste(self.bound(features))
         half_width = self._levels // 2  # Renormalize to [-1, 1].
         return quantized / half_width
 
@@ -148,7 +148,7 @@ class FSQ(Module):
         return codes
 
     @autocast(enabled=False)
-    def forward(self, z):
+    def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         einstein notation
         b - batch
@@ -157,30 +157,30 @@ class FSQ(Module):
         c - number of codebook dim
         """
 
-        orig_dtype = z.dtype
-        is_img_or_video = z.ndim >= 4
+        orig_dtype = features.dtype
+        is_img_or_video = features.ndim >= 4
         need_move_channel_last = is_img_or_video or self.channel_first
 
         # standardize image or video into (batch, seq, dimension)
 
         if need_move_channel_last:
-            z = rearrange(z, "b d ... -> b ... d")
-            z, ps = pack_one(z, "b * d")
+            features = rearrange(features, "b d ... -> b ... d")
+            features, ps = pack_one(features, "b * d")
 
         assert (
-            z.shape[-1] == self.dim
-        ), f"expected dimension of {self.dim} but found dimension of {z.shape[-1]}"
+            features.shape[-1] == self.dim
+        ), f"expected dimension of {self.dim} but found dimension of {features.shape[-1]}"
 
-        z = self.project_in(z)
+        features = self.project_in(features)
 
-        z = rearrange(z, "b n (c d) -> b n c d", c=self.num_codebooks)
+        features = rearrange(features, "b n (c d) -> b n c d", c=self.num_codebooks)
 
         # make sure allowed dtype before quantizing
 
-        if z.dtype not in self.allowed_dtypes:
-            z = z.float()
+        if features.dtype not in self.allowed_dtypes:
+            features = features.float()
 
-        codes = self.quantize(z)
+        codes = self.quantize(features)
         indices = None
         if self.return_indices:
             indices = self.codes_to_indices(codes)
@@ -202,6 +202,7 @@ class FSQ(Module):
             out = unpack_one(out, ps, "b * d")
             out = rearrange(out, "b ... d -> b d ...")
 
+        if need_move_channel_last and self.return_indices:
             indices = unpack_one(indices, ps, "b * c")
 
         if not self.keep_num_codebooks_dim and self.return_indices:
