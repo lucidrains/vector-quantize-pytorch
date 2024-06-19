@@ -4,19 +4,17 @@ Code adapted from Jax version in Appendix A.1
 """
 
 from __future__ import annotations
+
 from typing import List, Tuple
 
 import torch
 import torch.nn as nn
-from torch.nn import Module
+from einops import rearrange
 from torch import Tensor, int32
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
-from einops import rearrange, pack, unpack
-
-
-from vector_quantize_pytorch.utils import exists, default, pack_one, unpack_one
-
+from vector_quantize_pytorch.utils import default, exists, pack_one, unpack_one
 
 # tensor helpers
 

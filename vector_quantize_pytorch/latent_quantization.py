@@ -5,17 +5,17 @@ Code adapted from Jax version in https://github.com/kylehkhsu/latent_quantizatio
 """
 
 from __future__ import annotations
+
 from typing import Callable, List
 
 import torch
 import torch.nn.functional as F
-from einops import pack, rearrange, unpack
+from einops import rearrange
 from torch import Tensor, int32, nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
 from vector_quantize_pytorch.utils import pack_one, unpack_one
-
 
 
 class LatentQuantize(Module):

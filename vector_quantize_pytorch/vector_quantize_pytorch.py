@@ -1,17 +1,22 @@
 from functools import partial
-
-import torch
-from torch import nn, einsum
-import torch.nn.functional as F
-import torch.distributed as distributed
-from torch.optim import Optimizer
-from torch.cuda.amp import autocast
-
-from einops import rearrange, repeat, reduce, pack, unpack
-
 from typing import Callable
 
-from vector_quantize_pytorch.utils import exists, default, noop, log, entropy, pack_one, unpack_one
+import torch
+import torch.distributed as distributed
+import torch.nn.functional as F
+from einops import rearrange, reduce, repeat
+from torch import einsum, nn
+from torch.cuda.amp import autocast
+from torch.optim import Optimizer
+
+from vector_quantize_pytorch.utils import (
+    default,
+    exists,
+    log,
+    noop,
+    pack_one,
+    unpack_one,
+)
 
 
 def identity(t):

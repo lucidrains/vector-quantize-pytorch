@@ -1,22 +1,17 @@
 import random
-from math import log2
-from functools import partial
-
 from typing import List
 
 import torch
-from torch import nn
-from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from einops import pack, rearrange, reduce, unpack
+from einx import get_at
+from torch import nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
 from vector_quantize_pytorch.finite_scalar_quantization import FSQ
+from vector_quantize_pytorch.utils import exists, round_up_multiple
 
-from einops import rearrange, repeat, reduce, pack, unpack
-
-from einx import get_at
-
-from vector_quantize_pytorch.utils import exists, default, round_up_multiple
 
 def first(l):
     return l[0]

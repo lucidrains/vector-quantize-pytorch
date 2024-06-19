@@ -1,11 +1,9 @@
 import torch
-from torch import nn, einsum
-import torch.nn.functional as F
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
-
-from einops import rearrange, repeat, pack, unpack
+from einops import pack
+from torch import einsum, nn
 
 from vector_quantize_pytorch.utils import exists
+from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 
 class RandomProjectionQuantizer(nn.Module):

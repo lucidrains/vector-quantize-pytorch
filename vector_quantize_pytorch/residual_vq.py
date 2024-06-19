@@ -1,22 +1,18 @@
 from __future__ import annotations
 
 import random
-from math import ceil
 from functools import partial
 from itertools import zip_longest
 from typing import List
 
 import torch
-from torch import nn, Tensor
 import torch.nn.functional as F
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
-
-from einops import rearrange, repeat, reduce, pack, unpack
-
+from einops import pack, rearrange, reduce, unpack
 from einx import get_at
+from torch import Tensor, nn
 
-from vector_quantize_pytorch.utils import exists, default, round_up_multiple
-
+from vector_quantize_pytorch.utils import default, exists, round_up_multiple
+from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 # main class
 
