@@ -12,25 +12,10 @@ from torch.cuda.amp import autocast
 from torch.nn import Module
 
 
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
-
-
-# tensor helpers
-
-
 def round_ste(features: Tensor) -> Tensor:
     """Round with straight through gradients."""
     zhat = features.round()
     return features + (zhat - features).detach()
-
-
-# main class
-
 
 class FSQ(Module):
     def __init__(
@@ -160,7 +145,7 @@ class FSQ(Module):
         if self.channel_first:
             features = rearrange(features, "b d ... -> b ... d")
         
-        features, ps = pack_one(features, "b * d")
+        features, ps = pack([features], "b * d")
 
         assert (
             features.shape[-1] == self.dim
@@ -187,22 +172,17 @@ class FSQ(Module):
         if codes.dtype != orig_dtype:
             codes = codes.type(orig_dtype)
 
-        # project out
-
         out = self.project_out(codes)
 
         # reconstitute image or video dimensions
-
-        out = unpack_one(out, ps, "b * d")
+        out = unpack(out, ps, "b * d")[0]
         if self.channel_first:
             out = rearrange(out, "b ... d -> b d ...")
 
         if self.return_indices:
-            indices = unpack_one(indices, ps, "b * c")
+            indices = unpack(indices, ps, "b * c")[0]
 
         if not self.keep_num_codebooks_dim and self.return_indices:
             indices = rearrange(indices, "... 1 -> ...")
-
-        # return quantized output and indices
 
         return out, indices
