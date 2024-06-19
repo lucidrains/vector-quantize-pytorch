@@ -39,7 +39,6 @@ class FSQ(Module):
         dim: int | None = None,
         num_codebooks=1,
         keep_num_codebooks_dim: bool | None = None,
-        scale: float | None = None,
         allowed_dtypes: tuple[torch.dtype, ...] = (torch.float32, torch.float64),
         channel_first: bool = False,
         projection_has_bias: bool = True,
@@ -51,8 +50,6 @@ class FSQ(Module):
 
         _basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=int32)
         self.register_buffer("_basis", _basis, persistent=False)
-
-        self.scale = scale
 
         codebook_dim = len(levels)
         self.codebook_dim = codebook_dim
