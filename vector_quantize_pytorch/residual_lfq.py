@@ -1,29 +1,17 @@
 import random
-from math import log2
 from functools import partial
+from math import log2
 
 import torch
-from torch import nn
-from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from einops import pack, rearrange, reduce, unpack
+from einx import get_at
+from torch import nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
 from vector_quantize_pytorch.lookup_free_quantization import LFQ
-
-from einops import rearrange, repeat, reduce, pack, unpack
-
-from einx import get_at
-
-# helper functions
-
-def exists(val):
-    return val is not None
-
-def default(val, d):
-    return val if exists(val) else d
-
-def round_up_multiple(num, mult):
-    return ceil(num / mult) * mult
+from vector_quantize_pytorch.utils import exists, round_up_multiple
 
 # main class
 

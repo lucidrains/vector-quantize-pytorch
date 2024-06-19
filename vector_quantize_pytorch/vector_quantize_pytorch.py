@@ -1,24 +1,23 @@
 from functools import partial
-
-import torch
-from torch import nn, einsum
-import torch.nn.functional as F
-import torch.distributed as distributed
-from torch.optim import Optimizer
-from torch.cuda.amp import autocast
-
-from einops import rearrange, repeat, reduce, pack, unpack
-
 from typing import Callable
 
-def exists(val):
-    return val is not None
+import torch
+import torch.distributed as distributed
+import torch.nn.functional as F
+from einops import rearrange, reduce, repeat
+from torch import einsum, nn
+from torch.cuda.amp import autocast
+from torch.optim import Optimizer
 
-def default(val, d):
-    return val if exists(val) else d
+from vector_quantize_pytorch.utils import (
+    default,
+    exists,
+    log,
+    noop,
+    pack_one,
+    unpack_one,
+)
 
-def noop(*args, **kwargs):
-    pass
 
 def identity(t):
     return t
@@ -41,9 +40,6 @@ def cdist(x, y):
     xy = einsum('b i d, b j d -> b i j', x, y) * -2
     return (rearrange(x2, 'b i -> b i 1') + rearrange(y2, 'b j -> b 1 j') + xy).clamp(min = 0).sqrt()
 
-def log(t, eps = 1e-20):
-    return torch.log(t.clamp(min = eps))
-
 def ema_inplace(old, new, decay):
     is_mps = str(old.device).startswith('mps:')
 
@@ -51,12 +47,6 @@ def ema_inplace(old, new, decay):
         old.lerp_(new, 1 - decay)
     else:
         old.mul_(decay).add_(new * (1 - decay))
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
 
 def uniform_init(*shape):
     t = torch.empty(shape)

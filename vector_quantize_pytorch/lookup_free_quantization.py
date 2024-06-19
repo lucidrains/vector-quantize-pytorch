@@ -6,48 +6,30 @@ In the simplest setup, each dimension is quantized into {-1, 1}.
 An entropy penalty is used to encourage utilization.
 """
 
-from math import log2, ceil
-from functools import partial
 from collections import namedtuple
+from functools import partial
+from math import ceil, log2
 
 import torch
-from torch import nn, einsum
 import torch.nn.functional as F
-from torch.nn import Module
+from einops import rearrange, reduce
+from torch import einsum, nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
-from einops import rearrange, reduce, pack, unpack
+from vector_quantize_pytorch.utils import (
+    default,
+    entropy,
+    exists,
+    pack_one,
+    unpack_one,
+)
 
 # constants
 
 Return = namedtuple('Return', ['quantized', 'indices', 'entropy_aux_loss'])
 
 LossBreakdown = namedtuple('LossBreakdown', ['per_sample_entropy', 'batch_entropy', 'commitment'])
-
-# helper functions
-
-def exists(v):
-    return v is not None
-
-def default(*args):
-    for arg in args:
-        if exists(arg):
-            return arg() if callable(arg) else arg
-    return None
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
-
-# entropy
-
-def log(t, eps = 1e-5):
-    return t.clamp(min = eps).log()
-
-def entropy(prob):
-    return (-prob * log(prob)).sum(dim=-1)
 
 # cosine sim linear
 
@@ -99,7 +81,7 @@ class LFQ(Module):
         assert exists(dim) or exists(codebook_size), 'either dim or codebook_size must be specified for LFQ'
         assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
-        codebook_size = default(codebook_size, lambda: 2 ** dim)
+        codebook_size = default(codebook_size, 2 ** dim)
         self.codebook_size = codebook_size
 
         codebook_dim = int(log2(codebook_size))

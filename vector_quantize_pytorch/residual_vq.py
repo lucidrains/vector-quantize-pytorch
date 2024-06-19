@@ -1,30 +1,18 @@
 from __future__ import annotations
 
 import random
-from math import ceil
 from functools import partial
 from itertools import zip_longest
 from typing import List
 
 import torch
-from torch import nn, Tensor
 import torch.nn.functional as F
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
-
-from einops import rearrange, repeat, reduce, pack, unpack
-
+from einops import pack, rearrange, reduce, unpack
 from einx import get_at
+from torch import Tensor, nn
 
-# helper functions
-
-def exists(val):
-    return val is not None
-
-def default(val, d):
-    return val if exists(val) else d
-
-def round_up_multiple(num, mult):
-    return ceil(num / mult) * mult
+from vector_quantize_pytorch.utils import default, exists, round_up_multiple
+from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 # main class
 
