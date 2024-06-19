@@ -133,8 +133,6 @@ class FSQ(Module):
     def indices_to_codes(self, indices):
         """Inverse of `codes_to_indices`."""
 
-        is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
-
         codes = self._indices_to_codes(indices)
 
         if self.keep_num_codebooks_dim:
@@ -142,7 +140,7 @@ class FSQ(Module):
 
         codes = self.project_out(codes)
 
-        if is_img_or_video or self.channel_first:
+        if self.channel_first:
             codes = rearrange(codes, "b ... d -> b d ...")
 
         return codes
@@ -158,14 +156,11 @@ class FSQ(Module):
         """
 
         orig_dtype = features.dtype
-        is_img_or_video = features.ndim >= 4
-        need_move_channel_last = is_img_or_video or self.channel_first
-
-        # standardize image or video into (batch, seq, dimension)
-
-        if need_move_channel_last:
+        
+        if self.channel_first:
             features = rearrange(features, "b d ... -> b ... d")
-            features, ps = pack_one(features, "b * d")
+        
+        features, ps = pack_one(features, "b * d")
 
         assert (
             features.shape[-1] == self.dim
@@ -198,11 +193,11 @@ class FSQ(Module):
 
         # reconstitute image or video dimensions
 
-        if need_move_channel_last:
-            out = unpack_one(out, ps, "b * d")
+        out = unpack_one(out, ps, "b * d")
+        if self.channel_first:
             out = rearrange(out, "b ... d -> b d ...")
 
-        if need_move_channel_last and self.return_indices:
+        if self.return_indices:
             indices = unpack_one(indices, ps, "b * c")
 
         if not self.keep_num_codebooks_dim and self.return_indices:

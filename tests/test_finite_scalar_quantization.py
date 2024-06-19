@@ -18,6 +18,12 @@ class TestFSQ:
         assert quantized.shape == features.shape
         assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
 
+    def test_forward_images(self):
+        image_feats = torch.randn(1, 32, 32, 4)
+        quantized, indices = self.quantizer(image_feats)
+
+        assert quantized.shape == image_feats.shape
+        assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
 
 class TestFSQNoIndices:
     levels = [8,5,5,5]
@@ -33,7 +39,7 @@ class TestFSQNoIndices:
         assert indices is None
 
     def test_forward_images(self):
-        image_feats = torch.randn(1, 4, 32, 32)
+        image_feats = torch.randn(1, 32, 32, 4)
         _, indices = self.quantizer(image_feats)
 
         assert indices is None
