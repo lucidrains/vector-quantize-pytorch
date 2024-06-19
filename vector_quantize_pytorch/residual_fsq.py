@@ -16,19 +16,11 @@ from einops import rearrange, repeat, reduce, pack, unpack
 
 from einx import get_at
 
-# helper functions
-
-def exists(val):
-    return val is not None
+from vector_quantize_pytorch.utils import exists, default, round_up_multiple
 
 def first(l):
     return l[0]
 
-def default(val, d):
-    return val if exists(val) else d
-
-def round_up_multiple(num, mult):
-    return ceil(num / mult) * mult
 
 # main class
 

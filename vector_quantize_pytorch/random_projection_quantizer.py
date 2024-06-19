@@ -5,8 +5,8 @@ from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, pack, unpack
 
-def exists(val):
-    return val is not None
+from vector_quantize_pytorch.utils import exists
+
 
 class RandomProjectionQuantizer(nn.Module):
     """ https://arxiv.org/abs/2202.01855 """

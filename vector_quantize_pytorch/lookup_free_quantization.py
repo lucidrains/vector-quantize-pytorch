@@ -18,36 +18,13 @@ from torch.cuda.amp import autocast
 
 from einops import rearrange, reduce, pack, unpack
 
+from vector_quantize_pytorch.utils import exists, default, pack_one, unpack_one, log, entropy
+
 # constants
 
 Return = namedtuple('Return', ['quantized', 'indices', 'entropy_aux_loss'])
 
 LossBreakdown = namedtuple('LossBreakdown', ['per_sample_entropy', 'batch_entropy', 'commitment'])
-
-# helper functions
-
-def exists(v):
-    return v is not None
-
-def default(*args):
-    for arg in args:
-        if exists(arg):
-            return arg() if callable(arg) else arg
-    return None
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
-
-# entropy
-
-def log(t, eps = 1e-5):
-    return t.clamp(min = eps).log()
-
-def entropy(prob):
-    return (-prob * log(prob)).sum(dim=-1)
 
 # cosine sim linear
 

@@ -14,22 +14,9 @@ from torch.cuda.amp import autocast
 
 from einops import rearrange, pack, unpack
 
-# helper functions
 
-def exists(v):
-    return v is not None
+from vector_quantize_pytorch.utils import exists, default, pack_one, unpack_one
 
-def default(*args):
-    for arg in args:
-        if exists(arg):
-            return arg
-    return None
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
 
 # tensor helpers
 

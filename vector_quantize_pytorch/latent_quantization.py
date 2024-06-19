@@ -14,15 +14,8 @@ from torch import Tensor, int32, nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
-# helper functions
+from vector_quantize_pytorch.utils import pack_one, unpack_one
 
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
 
 
 class LatentQuantize(Module):
