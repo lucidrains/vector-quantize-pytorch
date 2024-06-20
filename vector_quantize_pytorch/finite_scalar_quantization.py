@@ -4,6 +4,7 @@ Code adapted from Jax version in Appendix A.1
 """
 
 from __future__ import annotations
+from functools import wraps
 from typing import List, Tuple
 
 import torch
@@ -24,6 +25,14 @@ def default(*args):
         if exists(arg):
             return arg
     return None
+
+def maybe(fn):
+    @wraps(fn)
+    def inner(x, *args, **kwargs):
+        if not exists(x):
+            return x
+        return fn(x, *args, **kwargs)
+    return inner
 
 def pack_one(t, pattern):
     return pack([t], pattern)
@@ -179,7 +188,11 @@ class FSQ(Module):
             z = z.float()
 
         codes = self.quantize(z)
+
+        # returning indices could be optional
+
         indices = None
+
         if self.return_indices:
             indices = self.codes_to_indices(codes)
 
@@ -200,10 +213,10 @@ class FSQ(Module):
             out = unpack_one(out, ps, 'b * d')
             out = rearrange(out, 'b ... d -> b d ...')
 
-            indices = unpack_one(indices, ps, 'b * c')
+            indices = maybe(unpack_one)(indices, ps, 'b * c')
 
         if not self.keep_num_codebooks_dim and self.return_indices:
-            indices = rearrange(indices, '... 1 -> ...')
+            indices = maybe(rearrange)(indices, '... 1 -> ...')
 
         # return quantized output and indices
 
