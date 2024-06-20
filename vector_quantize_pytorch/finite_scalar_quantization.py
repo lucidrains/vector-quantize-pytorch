@@ -1,6 +1,7 @@
-"""
+"""Finite Scalar Quantization module.
+
 Finite Scalar Quantization: VQ-VAE Made Simple - https://arxiv.org/abs/2309.15505
-Code adapted from Jax version in Appendix A.1
+Code adapted from Jax version in Appendix A.1.
 """
 
 from __future__ import annotations
@@ -18,6 +19,48 @@ def round_ste(features: Tensor) -> Tensor:
     return features + (zhat - features).detach()
 
 class FSQ(Module):
+    """Finite Scalar Quantization module.
+
+    This follows directly the idea in the initial paper.
+
+    Attributes
+    ----------
+    codebook_dim: int
+        the dimension of the codebook, that is the length of the list `levels`.
+    num_codebooks: int
+        the number of codebooks
+    effective_codebook_dim: int
+        the number of codebooks times the dimension of one codebook.
+    keep_num_codebooks_dim: bool
+        whether to keep an additional dimension to the return tensors, corresponding to the number of codebooks.
+        If `keep_num_codebooks_dim` is not provided at init, it is True if there are several codebooks.
+    dim: int
+        the dimension of the feature tensor.
+        If not provided, it is the effective codebook dimension.
+    channel_first: bool
+        indicates if the feature tensor has channel first (B, C, *) or last (B, *, C).
+    has_projections: bool
+        indicates if projections before and after quantization are needed, if the dimension of the features tensor is not the effective codebook dimension.
+    return_indices: bool
+        indicates if indices are returned or not. Useful in case of very large codebooks.
+
+    Parameters
+    ----------
+    project_in: nn.Module
+        is a Linear module if `dim` is not `effective_codebook_dim`, nn.Identity() else.
+    project_out: nn.Module
+        is a Linear module if `dim` is not `effective_codebook_dim`, nn.Identity() else.
+    
+    Methods
+    -------
+    bound(self, features: Tensor, eps: float = 1e-3)
+    quantize(self, features: Tensor)
+    codes_to_indices(self, zhat: Tensor)
+    indices_to_level_indices(self, indices: Tensor)
+    indices_to_codes(self, indices: Tensor)
+    forward(self, features: Tensor)
+    """
+
     def __init__(
         self,
         levels: list[int],
@@ -29,6 +72,27 @@ class FSQ(Module):
         projection_has_bias: bool = True,
         return_indices=True,
     ):
+        """Initialize the module.
+
+        Parameters
+        ----------
+        levels : list[int]
+            _description_
+        dim : int | None, optional
+            _description_, by default None
+        num_codebooks : int, optional
+            _description_, by default 1
+        keep_num_codebooks_dim : bool | None, optional
+            _description_, by default None
+        allowed_dtypes : tuple[torch.dtype, ...], optional
+            _description_, by default (torch.float32, torch.float64)
+        channel_first : bool, optional
+            _description_, by default False
+        projection_has_bias : bool, optional
+            _description_, by default True
+        return_indices : bool, optional
+            _description_, by default True
+        """
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
         self.register_buffer("_levels", _levels, persistent=False)
@@ -77,47 +141,46 @@ class FSQ(Module):
 
         self.allowed_dtypes = allowed_dtypes
 
-    def bound(self, features, eps: float = 1e-3):
+    def bound(self, features: Tensor, eps: float = 1e-3) -> Tensor:
         """Bound `features`, an array of shape (..., d)."""
         half_l = (self._levels - 1) * (1 + eps) / 2
         offset = torch.where(self._levels % 2 == 0, 0.5, 0.0)
         shift = (offset / half_l).atanh()
         return (features + shift).tanh() * half_l - offset
 
-    def quantize(self, features):
-        """Quantizes features, returns quantized zhat, same shape as features."""
+    def quantize(self, features: Tensor) -> Tensor:
+        """Quantize features, returns quantized zhat, same shape as features."""
         quantized = round_ste(self.bound(features))
         half_width = self._levels // 2  # Renormalize to [-1, 1].
         return quantized / half_width
 
-    def _scale_and_shift(self, zhat_normalized):
+    def _scale_and_shift(self, zhat_normalized: Tensor) -> Tensor:
         half_width = self._levels // 2
         return (zhat_normalized * half_width) + half_width
 
-    def _scale_and_shift_inverse(self, zhat):
+    def _scale_and_shift_inverse(self, zhat: Tensor) -> Tensor:
         half_width = self._levels // 2
         return (zhat - half_width) / half_width
 
-    def _indices_to_codes(self, indices):
+    def _indices_to_codes(self, indices: Tensor) -> Tensor:
         level_indices = self.indices_to_level_indices(indices)
         codes = self._scale_and_shift_inverse(level_indices)
         return codes
 
-    def codes_to_indices(self, zhat):
-        """Converts a `code` to an index in the codebook."""
-        assert zhat.shape[-1] == self.codebook_dim
-        zhat = self._scale_and_shift(zhat)
-        return (zhat * self._basis).sum(dim=-1).to(int32)
+    def codes_to_indices(self, codes: Tensor) -> Tensor:
+        """Convert a `code` to an index in the codebook."""
+        assert codes.shape[-1] == self.codebook_dim
+        codes = self._scale_and_shift(codes)
+        return (codes * self._basis).sum(dim=-1).to(int32)
 
-    def indices_to_level_indices(self, indices):
-        """Converts indices to indices at each level, perhaps needed for a transformer with factorized embeddings"""
+    def indices_to_level_indices(self, indices: Tensor) -> Tensor:
+        """Convert indices to indices at each level, perhaps needed for a transformer with factorized embeddings."""
         indices = rearrange(indices, "... -> ... 1")
         codes_non_centered = (indices // self._basis) % self._levels
         return codes_non_centered
 
-    def indices_to_codes(self, indices):
+    def indices_to_codes(self, indices: Tensor) -> Tensor:
         """Inverse of `codes_to_indices`."""
-
         codes = self._indices_to_codes(indices)
 
         if self.keep_num_codebooks_dim:
@@ -131,15 +194,22 @@ class FSQ(Module):
         return codes
 
     @autocast(enabled=False)
-    def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        einstein notation
-        b - batch
-        n - sequence (or flattened spatial dimensions)
-        d - feature dimension
-        c - number of codebook dim
-        """
+    def forward(self, features: Tensor) -> tuple[Tensor, Tensor]:
+        """Apply the forward pass to the features tensor.
 
+        Parameters
+        ----------
+        features : Tensor
+            tensor of shape (B, dim, *) if channel_first, (B, *, dim) if not.
+
+        Returns
+        -------
+        tuple[Tensor, Tensor]
+            the tuple is (out, indices), with:
+                * out, the quantized version of features, of the same shape
+                * indices, if return_indices is True, of the same shape or with an additional dimension if keep_num_codebooks_dim is set to True.
+
+        """
         orig_dtype = features.dtype
         
         if self.channel_first:
