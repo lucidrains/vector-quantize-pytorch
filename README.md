@@ -294,6 +294,27 @@ xhat, indices = quantizer(x)
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
 ```
 
+The possibility to not compute and return the indices, in case of out-of-memory codebook, has been added to FSQ:
+
+```python
+import torch
+from vector_quantize_pytorch import FSQ
+
+quantizer = FSQ(
+    levels = [8, 5, 5, 5],
+    return_indices = False,
+)
+
+x = torch.randn(1, 1024, 4) # 4 since there are 4 levels
+xhat, indices = quantizer(x)
+
+# (1, 1024, 4), (1, 1024)
+
+assert indices is None
+```
+
+Note that already the codebook associated to the Finite Scalar quantizer is not a parameter of the module itself.
+
 An improvised Residual FSQ, for an attempt to improve audio encoding. 
 
 Credit goes to [@sekstini](https://github.com/sekstini) for originally incepting the idea [here](https://github.com/lucidrains/vector-quantize-pytorch/pull/74#issuecomment-1742048597)
