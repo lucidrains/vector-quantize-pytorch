@@ -4,14 +4,18 @@ import pytest
 def exists(v):
     return v is not None
 
-def test_vq():
+@pytest.mark.parametrize('use_cosine_sim', (True, False))
+def test_vq(
+    use_cosine_sim
+):
     from vector_quantize_pytorch import VectorQuantize
 
     vq = VectorQuantize(
         dim = 256,
-        codebook_size = 512,     # codebook size
-        decay = 0.8,             # the exponential moving average decay, lower means the dictionary will change faster
-        commitment_weight = 1.   # the weight on the commitment loss
+        codebook_size = 512,                # codebook size
+        decay = 0.8,                        # the exponential moving average decay, lower means the dictionary will change faster
+        commitment_weight = 1.,             # the weight on the commitment loss
+        use_cosine_sim = use_cosine_sim
     )
 
     x = torch.randn(1, 1024, 256)

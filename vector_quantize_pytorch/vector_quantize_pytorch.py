@@ -1,6 +1,7 @@
 from functools import partial
 
 import torch
+from torch.nn import Module
 from torch import nn, einsum
 import torch.nn.functional as F
 import torch.distributed as distributed
@@ -245,7 +246,7 @@ def orthogonal_loss_fn(t):
 
 # distance types
 
-class EuclideanCodebook(nn.Module):
+class EuclideanCodebook(Module):
     def __init__(
         self,
         dim,
@@ -259,6 +260,7 @@ class EuclideanCodebook(nn.Module):
         threshold_ema_dead_code = 2,
         reset_cluster_size = None,
         use_ddp = False,
+        distributed_replace_codes = True,
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
@@ -292,6 +294,8 @@ class EuclideanCodebook(nn.Module):
         assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+        self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans and distributed_replace_codes else batched_sample_vectors
+
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
@@ -422,7 +426,7 @@ class EuclideanCodebook(nn.Module):
             if not torch.any(mask):
                 continue
 
-            sampled = self.sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
+            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
             
             self.embed.data[ind][mask] = sampled
@@ -520,7 +524,7 @@ class EuclideanCodebook(nn.Module):
 
         return quantize, embed_ind, dist
 
-class CosineSimCodebook(nn.Module):
+class CosineSimCodebook(Module):
     def __init__(
         self,
         dim,
@@ -534,10 +538,11 @@ class CosineSimCodebook(nn.Module):
         threshold_ema_dead_code = 2,
         reset_cluster_size = None,
         use_ddp = False,
+        distributed_replace_codes = True,
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
-        ema_update = True
+        ema_update = True,
     ):
         super().__init__()
         self.transform_input = l2norm
@@ -563,6 +568,8 @@ class CosineSimCodebook(nn.Module):
         self.sample_codebook_temp = sample_codebook_temp
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+        self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans and distributed_replace_codes else batched_sample_vectors
+
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
@@ -608,7 +615,7 @@ class CosineSimCodebook(nn.Module):
             if not torch.any(mask):
                 continue
 
-            sampled = self.sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
+            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
 
             self.embed.data[ind][mask] = sampled
@@ -696,7 +703,7 @@ class CosineSimCodebook(nn.Module):
 
 # main class
 
-class VectorQuantize(nn.Module):
+class VectorQuantize(Module):
     def __init__(
         self,
         dim,
@@ -723,6 +730,7 @@ class VectorQuantize(nn.Module):
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
+        distributed_replace_codes = True,
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = None,
         sync_affine_param = False,
@@ -798,7 +806,8 @@ class VectorQuantize(nn.Module):
             learnable_codebook = has_codebook_orthogonal_loss or learnable_codebook,
             sample_codebook_temp = sample_codebook_temp,
             gumbel_sample = gumbel_sample_fn,
-            ema_update = ema_update
+            ema_update = ema_update,
+            distributed_replace_codes = distributed_replace_codes
         )
 
         if affine_param:
