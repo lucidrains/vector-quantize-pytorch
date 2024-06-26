@@ -201,7 +201,11 @@ def test_rfsq():
     assert torch.all(quantized == quantized_out)
 
 @pytest.mark.parametrize('spherical', (True, False))
-def test_lfq(spherical):
+@pytest.mark.parametrize('codebook_scale', (1., 0.5))
+def test_lfq(
+    spherical,
+    codebook_scale
+):
     from vector_quantize_pytorch import LFQ
 
     # you can specify either dim or codebook_size
@@ -212,7 +216,8 @@ def test_lfq(spherical):
         dim = 16,                   # this is the input feature dimension, defaults to log2(codebook_size) if not defined
         entropy_loss_weight = 0.1,  # how much weight to place on entropy loss
         diversity_gamma = 1.,       # within entropy loss, how much weight to give to diversity of codes, taken from https://arxiv.org/abs/1911.05894
-        spherical = spherical
+        spherical = spherical,
+        codebook_scale = codebook_scale
     )
 
     image_feats = torch.randn(1, 16, 32, 32)

@@ -44,6 +44,9 @@ def maybe_distributed_mean(t):
 def exists(v):
     return v is not None
 
+def identity(t):
+    return t
+
 def default(*args):
     for arg in args:
         if exists(arg):
@@ -156,6 +159,7 @@ class LFQ(Module):
         # whether to use BSQ (binary spherical quantization)
 
         self.spherical = spherical
+        self.maybe_l2norm = (lambda t: l2norm(t) * self.codebook_scale) if spherical else identity
 
         # entropy aux loss related weights
 
@@ -220,8 +224,7 @@ class LFQ(Module):
 
         codes = self.bits_to_codes(bits)
 
-        if self.spherical:
-            codes = l2norm(codes)
+        codes = self.maybe_l2norm(codes)
 
         codes = rearrange(codes, '... c d -> ... (c d)')
 
@@ -281,8 +284,7 @@ class LFQ(Module):
 
         # maybe l2norm
 
-        if self.spherical:
-            x = l2norm(x)
+        x = self.maybe_l2norm(x)
 
         # quantize by eq 3.
 
@@ -297,8 +299,7 @@ class LFQ(Module):
 
         # maybe l2norm
 
-        if self.spherical:
-            quantized = l2norm(quantized)
+        quantized = self.maybe_l2norm(quantized)
 
         # use straight-through gradients (optionally with custom activation fn) if training
 
@@ -313,8 +314,7 @@ class LFQ(Module):
         if self.training:
             codebook = self.codebook
 
-            if self.spherical:
-                codebook = l2norm(codebook)
+            codebook = self.maybe_l2norm(codebook)
 
             # the same as euclidean distance up to a constant
             distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
