@@ -56,6 +56,9 @@ def pack_one(t, pattern):
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
 
+def l2norm(t):
+    return F.normalize(t, dim = -1)
+
 # entropy
 
 def log(t, eps = 1e-5):
@@ -104,8 +107,8 @@ class LFQ(Module):
         cosine_sim_project_in_scale = None,
         channel_first = None,
         experimental_softplus_entropy_loss = False,
-        entropy_loss_offset = 5.,  # how much to shift the loss before softplus
-
+        entropy_loss_offset = 5.,                   # how much to shift the loss before softplus
+        spherical = False                           # from https://arxiv.org/abs/2406.07548
     ):
         super().__init__()
 
@@ -148,6 +151,10 @@ class LFQ(Module):
         # straight through activation
 
         self.activation = straight_through_activation
+
+        # whether to use BSQ (binary spherical quantization)
+
+        self.spherical = spherical
 
         # entropy aux loss related weights
 
@@ -268,12 +275,22 @@ class LFQ(Module):
 
         x = rearrange(x, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
+        # maybe l2norm
+
+        if self.spherical:
+            x = l2norm(x)
+
         # quantize by eq 3.
 
         original_input = x
 
         codebook_value = torch.ones_like(x) * self.codebook_scale
         quantized = torch.where(x > 0, codebook_value, -codebook_value)
+
+        # maybe l2norm
+
+        if self.spherical:
+            quantized = l2norm(quantized)
 
         # use straight-through gradients (optionally with custom activation fn) if training
 
@@ -290,8 +307,13 @@ class LFQ(Module):
         # entropy aux loss
 
         if self.training:
+            codebook = self.codebook
+
+            if self.spherical:
+                codebook = l2norm(codebook)
+
             # the same as euclidean distance up to a constant
-            distance = -2 * einsum('... i d, j d -> ... i j', original_input, self.codebook)
+            distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 

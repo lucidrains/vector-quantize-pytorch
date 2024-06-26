@@ -661,6 +661,15 @@ assert loss.item() >= 0
 ```
 
 ```bibtex
+@inproceedings{Zhao2024ImageAV,
+  title     = {Image and Video Tokenization with Binary Spherical Quantization},
+  author    = {Yue Zhao and Yuanjun Xiong and Philipp Krahenbuhl},
+  year      = {2024},
+  url       = {https://api.semanticscholar.org/CorpusID:270380237}
+}
+```
+
+```bibtex
 @misc{hsu2023disentanglement,
     title   = {Disentanglement via Latent Quantization}, 
     author  = {Kyle Hsu and Will Dorrell and James C. R. Whittington and Jiajun Wu and Chelsea Finn},
