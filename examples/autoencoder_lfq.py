@@ -18,6 +18,8 @@ seed = 1234
 codebook_size = 2 ** 8
 entropy_loss_weight = 0.02
 diversity_gamma = 1.
+spherical = True
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class LFQAutoEncoder(nn.Module):
@@ -107,7 +109,8 @@ torch.random.manual_seed(seed)
 model = LFQAutoEncoder(
     codebook_size = codebook_size,
     entropy_loss_weight = entropy_loss_weight,
-    diversity_gamma = diversity_gamma
+    diversity_gamma = diversity_gamma,
+    spherical = spherical
 ).to(device)
 
 opt = torch.optim.AdamW(model.parameters(), lr=lr)

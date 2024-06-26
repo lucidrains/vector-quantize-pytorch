@@ -291,6 +291,10 @@ class LFQ(Module):
         codebook_value = torch.ones_like(x) * self.codebook_scale
         quantized = torch.where(x > 0, codebook_value, -codebook_value)
 
+        # calculate indices
+
+        indices = reduce((quantized > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
+
         # maybe l2norm
 
         if self.spherical:
@@ -303,10 +307,6 @@ class LFQ(Module):
             x = x + (quantized - x).detach()
         else:
             x = quantized
-
-        # calculate indices
-
-        indices = reduce((x > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
 
         # entropy aux loss
 
