@@ -101,6 +101,7 @@ class LFQ(Module):
         keep_num_codebooks_dim = None,
         codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
         frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
+        has_projections = None,
         projection_has_bias = True,
         soft_clamp_input_value = None,
         cosine_sim_project_in = False,
@@ -124,7 +125,7 @@ class LFQ(Module):
         codebook_dims = codebook_dim * num_codebooks
         dim = default(dim, codebook_dims)
 
-        has_projections = dim != codebook_dims
+        has_projections = default(has_projections, dim != codebook_dims)
 
         if cosine_sim_project_in:
             cosine_sim_project_in = default(cosine_sim_project_in_scale, codebook_scale)
