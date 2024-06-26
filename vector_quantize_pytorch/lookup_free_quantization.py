@@ -7,8 +7,9 @@ An entropy penalty is used to encourage utilization.
 """
 
 from math import log2, ceil
-from functools import partial
+from functools import partial, cache
 from collections import namedtuple
+import torch.distributed as dist
 
 import torch
 from torch import nn, einsum
@@ -23,6 +24,20 @@ from einops import rearrange, reduce, pack, unpack
 Return = namedtuple('Return', ['quantized', 'indices', 'entropy_aux_loss'])
 
 LossBreakdown = namedtuple('LossBreakdown', ['per_sample_entropy', 'batch_entropy', 'commitment'])
+
+# distributed helpers
+
+@cache
+def is_distributed():
+    return dist.is_initialized() and dist.get_world_size() > 1
+
+def maybe_distributed_mean(t):
+    if not is_distributed():
+        return t
+
+    dist.all_reduce(t)
+    t = t / dist.get_world_size()
+    return t
 
 # helper functions
 
@@ -83,7 +98,6 @@ class LFQ(Module):
         keep_num_codebooks_dim = None,
         codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
         frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
-        use_code_agnostic_commit_loss = False,
         projection_has_bias = True,
         soft_clamp_input_value = None,
         cosine_sim_project_in = False,
@@ -91,6 +105,7 @@ class LFQ(Module):
         channel_first = None,
         experimental_softplus_entropy_loss = False,
         entropy_loss_offset = 5.,  # how much to shift the loss before softplus
+
     ):
         super().__init__()
 
@@ -149,7 +164,6 @@ class LFQ(Module):
         # commitment loss
 
         self.commitment_loss_weight = commitment_loss_weight
-        self.use_code_agnostic_commit_loss = use_code_agnostic_commit_loss
 
         # whether to soft clamp the input value from -value to value
 
@@ -305,6 +319,9 @@ class LFQ(Module):
             # distribution over all available tokens in the batch
 
             avg_prob = reduce(per_sample_probs, '... c d -> c d', 'mean')
+
+            avg_prob = maybe_distributed_mean(avg_prob)
+
             codebook_entropy = entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
@@ -324,17 +341,7 @@ class LFQ(Module):
 
         if self.training and self.commitment_loss_weight > 0.:
 
-            if self.use_code_agnostic_commit_loss:
-                # credit goes to @MattMcPartlon for sharing this in https://github.com/lucidrains/vector-quantize-pytorch/issues/120#issuecomment-2095089337
-
-                commit_loss = F.mse_loss(
-                    original_input ** 2,
-                    codebook_value ** 2,
-                    reduction = 'none'
-                )
-
-            else:
-                commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
+            commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
 
             if exists(mask):
                 commit_loss = commit_loss[mask]
