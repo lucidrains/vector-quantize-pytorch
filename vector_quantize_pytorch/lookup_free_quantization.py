@@ -219,6 +219,9 @@ class LFQ(Module):
 
         codes = self.bits_to_codes(bits)
 
+        if self.spherical:
+            codes = l2norm(codes)
+
         codes = rearrange(codes, '... c d -> ... (c d)')
 
         # whether to project codes out to original dimensions
