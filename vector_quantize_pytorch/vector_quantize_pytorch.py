@@ -1,4 +1,5 @@
 from functools import partial
+from collections import namedtuple
 
 import torch
 from torch.nn import Module
@@ -703,6 +704,12 @@ class CosineSimCodebook(Module):
 
 # main class
 
+LossBreakdown = namedtuple('LossBreakdown', [
+    'commitment',
+    'orthogonal_reg',
+    'inplace_optimize'
+])
+
 class VectorQuantize(Module):
     def __init__(
         self,
@@ -829,6 +836,8 @@ class VectorQuantize(Module):
         self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
+        self.register_buffer('zero', torch.tensor(0.), persistent = False)
+
     @property
     def codebook(self):
         codebook = self._codebook.embed
@@ -877,7 +886,8 @@ class VectorQuantize(Module):
         indices = None,
         mask = None,
         sample_codebook_temp = None,
-        freeze_codebook = False
+        freeze_codebook = False,
+        return_loss_breakdown = False
     ):
         orig_input = x
 
@@ -927,6 +937,10 @@ class VectorQuantize(Module):
 
         quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
 
+        # losses for loss breakdown
+
+        commit_loss = orthogonal_reg_loss = inplace_optimize_loss = self.zero
+
         # one step in-place update
 
         if should_inplace_optimize and self.training and not freeze_codebook:
@@ -946,6 +960,8 @@ class VectorQuantize(Module):
             loss.backward()
             self.in_place_codebook_optimizer.step()
             self.in_place_codebook_optimizer.zero_grad()
+
+            inplace_optimize_loss = loss
 
             # quantize again
 
@@ -1084,4 +1100,9 @@ class VectorQuantize(Module):
                 orig_input
             )
 
-        return quantize, embed_ind, loss
+        if not return_loss_breakdown:
+            return quantize, embed_ind, loss
+
+        loss_breakdown = LossBreakdown(commit_loss, orthogonal_reg_loss, inplace_optimize_loss)
+
+        return quantize, embed_ind, loss, loss_breakdown
