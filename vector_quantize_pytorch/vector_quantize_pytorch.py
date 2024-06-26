@@ -46,6 +46,11 @@ def cdist(x, y):
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
+# entropy
+
+def entropy(prob, eps = 1e-5):
+    return (-prob * log(prob, eps = eps)).sum(dim = -1)
+
 def ema_inplace(old, new, decay):
     is_mps = str(old.device).startswith('mps:')
 
@@ -706,8 +711,9 @@ class CosineSimCodebook(Module):
 
 LossBreakdown = namedtuple('LossBreakdown', [
     'commitment',
+    'codebook_diversity',
     'orthogonal_reg',
-    'inplace_optimize'
+    'inplace_optimize',
 ])
 
 class VectorQuantize(Module):
@@ -734,6 +740,8 @@ class VectorQuantize(Module):
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
+        codebook_diversity_loss_weight = 0.,
+        codebook_diversity_temperature = 100.,
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
@@ -747,7 +755,7 @@ class VectorQuantize(Module):
         affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9, 
-        sync_update_v = 0. # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
+        sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
         self.dim = dim
@@ -769,16 +777,23 @@ class VectorQuantize(Module):
         self.has_projections = requires_projection
 
         self.eps = eps
+
+        self.has_commitment_loss = commitment_weight > 0.
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
         self.learnable_codebook = learnable_codebook
 
-        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
+        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
         self.orthogonal_reg_weight = orthogonal_reg_weight
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
         self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
+
+        has_codebook_diversity_loss = codebook_diversity_loss_weight > 0.
+        self.has_codebook_diversity_loss = has_codebook_diversity_loss
+        self.codebook_diversity_temperature = codebook_diversity_temperature
+        self.codebook_diversity_loss_weight = codebook_diversity_loss_weight
 
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
 
@@ -887,7 +902,7 @@ class VectorQuantize(Module):
         mask = None,
         sample_codebook_temp = None,
         freeze_codebook = False,
-        return_loss_breakdown = False
+        return_loss_breakdown = False,
     ):
         orig_input = x
 
@@ -939,7 +954,7 @@ class VectorQuantize(Module):
 
         # losses for loss breakdown
 
-        commit_loss = orthogonal_reg_loss = inplace_optimize_loss = self.zero
+        commit_loss = orthogonal_reg_loss = inplace_optimize_loss = codebook_diversity_loss = self.zero
 
         # one step in-place update
 
@@ -1024,7 +1039,18 @@ class VectorQuantize(Module):
         loss = torch.tensor([0.], device = device, requires_grad = self.training)
 
         if self.training:
-            if self.commitment_weight > 0:
+            # calculate codebook diversity loss (negative of entropy) if needed
+
+            if self.has_codebook_diversity_loss:
+                prob = (-distances * self.codebook_diversity_temperature).softmax(dim = -1)
+                avg_prob = reduce(prob, '... n l -> n l', 'mean')
+                codebook_diversity_loss = -entropy(avg_prob).mean()
+
+                loss = loss + codebook_diversity_loss * self.codebook_diversity_loss_weight
+
+            # commitment loss
+
+            if self.has_commitment_loss:
                 if self.commitment_use_cross_entropy_loss:
                     if exists(mask):
                         ce_loss_mask = mask
@@ -1103,6 +1129,6 @@ class VectorQuantize(Module):
         if not return_loss_breakdown:
             return quantize, embed_ind, loss
 
-        loss_breakdown = LossBreakdown(commit_loss, orthogonal_reg_loss, inplace_optimize_loss)
+        loss_breakdown = LossBreakdown(commit_loss, codebook_diversity_loss, orthogonal_reg_loss, inplace_optimize_loss)
 
         return quantize, embed_ind, loss, loss_breakdown
