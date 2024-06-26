@@ -1,36 +1,46 @@
-# FashionMnist VQ experiment with various settings.
-# From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
+"""Module containing everything needed to train a simple LFQ-based autoencoder.
 
-from tqdm.auto import trange
+This module contains the LightningModule subclass LFQAutoEncoder,
+which holds a basic implementations of a VQ VAE model using the LFQ module of the project.
+Implementation inspired by https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
+
+At the end of the module you can find a short script using the Trainer of Lightning to 
+train the model for 10 epochs, using the FashionMNIST dataset as defined in 
+the module data.py
+"""
+
 from math import log2
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from lightning import LightningModule, Trainer, seed_everything
+from lightning.pytorch.callbacks import RichModelSummary, RichProgressBar
+from lightning.pytorch.loggers import TensorBoardLogger
+from torch import nn
+from torch.nn.functional import l1_loss
 
+from examples.data import LitFashionMNIST
 from vector_quantize_pytorch import LFQ
 
-lr = 3e-4
-train_iter = 1000
-seed = 1234
-codebook_size = 2 ** 8
-entropy_loss_weight = 0.02
-diversity_gamma = 1.
-device = "cuda" if torch.cuda.is_available() else "cpu"
+seed_everything(1234, workers=True)
 
-class LFQAutoEncoder(nn.Module):
+
+class LFQAutoEncoder(LightningModule):
     def __init__(
         self,
-        codebook_size,
-        **vq_kwargs
+        codebook_size: int = 2**8,
+        diversity_gamma: float = 1.0,
+        entropy_loss_weight: float = 0.02,
+        lr: float = 3e-4,
     ):
         super().__init__()
-        assert log2(codebook_size).is_integer()
-        quantize_dim = int(log2(codebook_size))
+        self.codebook_size = codebook_size
+        self.diversity_gamma = diversity_gamma
+        self.entropy_loss_weight = entropy_loss_weight
+        self.lr = lr
 
-        self.encode = nn.Sequential(
+        self.quantize_dim = int(log2(self.codebook_size))
+
+        self.encoder = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.GELU(),
@@ -39,77 +49,66 @@ class LFQAutoEncoder(nn.Module):
             # In general norm layers are commonly used in Resnet-based encoder/decoders
             # explicitly add one here with affine=False to avoid introducing new parameters
             nn.GroupNorm(4, 32, affine=False),
-            nn.Conv2d(32, quantize_dim, kernel_size=1),
+            nn.Conv2d(32, self.quantize_dim, kernel_size=1),
         )
 
-        self.quantize = LFQ(dim=quantize_dim, **vq_kwargs)
+        self.quantizer = LFQ(
+            dim=self.quantize_dim,
+            diversity_gamma=self.diversity_gamma,
+            entropy_loss_weight=self.entropy_loss_weight,
+        )
 
-        self.decode = nn.Sequential(
-            nn.Conv2d(quantize_dim, 32, kernel_size=3, stride=1, padding=1),
+        self.decoder = nn.Sequential(
+            nn.Conv2d(self.quantize_dim, 32, kernel_size=3, stride=1, padding=1),
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
             nn.GELU(),
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
-        return
 
     def forward(self, x):
-        x = self.encode(x)
-        x, indices, entropy_aux_loss = self.quantize(x)
-        x = self.decode(x)
+        x = self.encoder(x)
+        x, indices, entropy_aux_loss = self.quantizer(x)
+        x = self.decoder(x)
         return x.clamp(-1, 1), indices, entropy_aux_loss
 
-
-def train(model, train_loader, train_iterations=1000):
-    def iterate_dataset(data_loader):
-        data_iter = iter(data_loader)
-        while True:
-            try:
-                x, y = next(data_iter)
-            except StopIteration:
-                data_iter = iter(data_loader)
-                x, y = next(data_iter)
-            yield x.to(device), y.to(device)
-
-    for _ in (pbar := trange(train_iterations)):
-        opt.zero_grad()
-        x, _ = next(iterate_dataset(train_loader))
-        out, indices, entropy_aux_loss = model(x)
-
-        rec_loss = F.l1_loss(out, x)
-        (rec_loss + entropy_aux_loss).backward()
-
-        opt.step()
-        pbar.set_description(
-              f"rec loss: {rec_loss.item():.3f} | "
-            + f"entropy aux loss: {entropy_aux_loss.item():.3f} | "
-            + f"active %: {indices.unique().numel() / codebook_size * 100:.3f}"
+    def training_step(self, batch, batch_idx):
+        input, _ = batch
+        out, indices, entropy_aux_loss = self.forward(input)
+        rec_loss = l1_loss(out, input)
+        loss = rec_loss + entropy_aux_loss
+        self.log("train_loss", loss, prog_bar=True)
+        self.log("train_entropy_aux_loss", entropy_aux_loss, prog_bar=True)
+        self.log(
+            "train_indices",
+            indices.unique().numel() / self.codebook_size * 100,
+            prog_bar=True,
         )
-    return
 
-transform = transforms.Compose(
-    [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+    def validation_step(self, batch, batch_idx):
+        input, _ = batch
+        out, indices, entropy_aux_loss = self.forward(input)
+        rec_loss = l1_loss(out, input)
+        loss = rec_loss + entropy_aux_loss
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_entropy_aux_loss", entropy_aux_loss, prog_bar=True)
+        self.log(
+            "val_indices",
+            indices.unique().numel() / self.codebook_size * 100,
+            prog_bar=True,
+        )
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return optimizer
+
+
+model = LFQAutoEncoder()
+data = LitFashionMNIST()
+logger = TensorBoardLogger(save_dir=".", name="LFQ")
+trainer = Trainer(
+    logger=logger, max_epochs=10, callbacks=[RichProgressBar(), RichModelSummary()]
 )
 
-train_dataset = DataLoader(
-    datasets.FashionMNIST(
-        root="~/data/fashion_mnist", train=True, download=True, transform=transform
-    ),
-    batch_size=256,
-    shuffle=True,
-)
-
-print("baseline")
-
-torch.random.manual_seed(seed)
-
-model = LFQAutoEncoder(
-    codebook_size = codebook_size,
-    entropy_loss_weight = entropy_loss_weight,
-    diversity_gamma = diversity_gamma
-).to(device)
-
-opt = torch.optim.AdamW(model.parameters(), lr=lr)
-
-train(model, train_dataset, train_iterations=train_iter)
+trainer.fit(model=model, datamodule=data)

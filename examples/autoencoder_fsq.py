@@ -1,96 +1,97 @@
-# FashionMnist VQ experiment with various settings, using FSQ.
-# From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
+"""Module containing everything needed to train a simple FSQ-based autoencoder.
 
-from tqdm.auto import trange
+This module contains the LightningModule subclass SimpleFSQAutoEncoder,
+which holds a basic implementations of a VQ VAE model using the FSQ module of the project.
+Implementation inspired by https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
+
+At the end of the module you can find a short script using the Trainer of Lightning to 
+train the model for 10 epochs, using the FashionMNIST dataset as defined in 
+the module data.py
+"""
 
 import math
-import torch
-import torch.nn as nn
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
 
+import torch
+from lightning import LightningModule, Trainer, seed_everything
+from lightning.pytorch.callbacks import RichModelSummary, RichProgressBar
+from lightning.pytorch.loggers import TensorBoardLogger
+from torch import nn
+from torch.nn.functional import l1_loss
+
+from examples.data import LitFashionMNIST
 from vector_quantize_pytorch import FSQ
 
-
-lr = 3e-4
-train_iter = 1000
-levels = [8, 6, 5] # target size 2^8, actual size 240
-num_codes = math.prod(levels)
-seed = 1234
-device = "cuda" if torch.cuda.is_available() else "cpu"
+seed_everything(1234, workers=True)
 
 
-class SimpleFSQAutoEncoder(nn.Module):
-    def __init__(self, levels: list[int]):
+class SimpleFSQAutoEncoder(LightningModule):
+    def __init__(self, levels: list[int] = [8, 6, 5], lr: float = 3e-4):
         super().__init__()
-        self.layers = nn.ModuleList(
-            [
-                nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.GELU(),
-                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Conv2d(32, len(levels), kernel_size=1),
-                FSQ(levels),
-                nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-                nn.GELU(),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
-            ]
+        self.levels = levels
+        self.lr = lr
+        self.num_codes = math.prod(levels)
+
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.GELU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, len(levels), kernel_size=1),
         )
-        return
+
+        self.quantizer = FSQ(self.levels)
+
+        self.decoder = nn.Sequential(
+            nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+            nn.GELU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+        )
 
     def forward(self, x):
-        for layer in self.layers:
-            if isinstance(layer, FSQ):
-                x, indices = layer(x)
-            else:
-                x = layer(x)
-
+        x = self.encoder(x)
+        x, indices = self.quantizer(x)
+        x = self.decoder(x)
         return x.clamp(-1, 1), indices
 
-
-def train(model, train_loader, train_iterations=1000):
-    def iterate_dataset(data_loader):
-        data_iter = iter(data_loader)
-        while True:
-            try:
-                x, y = next(data_iter)
-            except StopIteration:
-                data_iter = iter(data_loader)
-                x, y = next(data_iter)
-            yield x.to(device), y.to(device)
-
-    for _ in (pbar := trange(train_iterations)):
-        opt.zero_grad()
-        x, _ = next(iterate_dataset(train_loader))
-        out, indices = model(x)
-        rec_loss = (out - x).abs().mean()
-        rec_loss.backward()
-
-        opt.step()
-        pbar.set_description(
-            f"rec loss: {rec_loss.item():.3f} | "
-            + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
+    def training_step(self, batch, batch_idx):
+        input, _ = batch
+        out, indices = self.forward(input)
+        rec_loss = l1_loss(out, input)
+        loss = rec_loss
+        self.log("train_loss", loss, prog_bar=True)
+        self.log(
+            "train_indices",
+            indices.unique().numel() / self.num_codes * 100,
+            prog_bar=True,
         )
-    return
+
+    def validation_step(self, batch, batch_idx):
+        input, _ = batch
+        out, indices = self.forward(input)
+        rec_loss = l1_loss(out, input)
+        loss = rec_loss
+        self.log("val_loss", loss, prog_bar=True)
+        self.log(
+            "val_indices",
+            indices.unique().numel() / self.num_codes * 100,
+            prog_bar=True,
+        )
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return optimizer
 
 
-transform = transforms.Compose(
-    [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+model = SimpleFSQAutoEncoder()
+
+data = LitFashionMNIST()
+logger = TensorBoardLogger(save_dir=".", name="FSQ")
+trainer = Trainer(
+    logger=True, max_epochs=10, callbacks=[RichProgressBar(), RichModelSummary()]
 )
-train_dataset = DataLoader(
-    datasets.FashionMNIST(
-        root="~/data/fashion_mnist", train=True, download=True, transform=transform
-    ),
-    batch_size=256,
-    shuffle=True,
-)
 
-print("baseline")
-torch.random.manual_seed(seed)
-model = SimpleFSQAutoEncoder(levels).to(device)
-opt = torch.optim.AdamW(model.parameters(), lr=lr)
-train(model, train_dataset, train_iterations=train_iter)
+trainer.fit(model=model, datamodule=data)
