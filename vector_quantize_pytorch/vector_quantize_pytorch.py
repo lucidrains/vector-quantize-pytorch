@@ -430,10 +430,7 @@ class EuclideanCodebook(Module):
         self.update_with_decay('batch_variance', batch_variance, self.affine_param_batch_decay)
 
     def replace(self, batch_samples, batch_mask):
-        for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
-            if not torch.any(mask):
-                continue
-
+        for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
             
@@ -619,10 +616,7 @@ class CosineSimCodebook(Module):
     def replace(self, batch_samples, batch_mask):
         batch_samples = l2norm(batch_samples)
 
-        for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
-            if not torch.any(mask):
-                continue
-
+        for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
 
