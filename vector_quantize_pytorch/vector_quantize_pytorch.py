@@ -146,6 +146,8 @@ def sample_multinomial(total_count, probs):
         total_count -= s
         remainder -= p
 
+    assert total_count == 0, f'invalid total count {total_count}'
+
     return sample.to(device)
 
 def all_gather_sizes(x, dim):
