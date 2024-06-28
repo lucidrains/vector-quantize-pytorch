@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, cache
 from collections import namedtuple
 
 import torch
@@ -45,8 +45,6 @@ def cdist(x, y):
 
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
-
-# entropy
 
 def entropy(prob, eps = 1e-5):
     return (-prob * log(prob, eps = eps)).sum(dim = -1)
@@ -243,6 +241,20 @@ def batched_embedding(indices, embeds):
     embeds = repeat(embeds, 'h c d -> h b c d', b = batch)
     return embeds.gather(2, indices)
 
+# distributed helpers
+
+@cache
+def is_distributed():
+    return distributed.is_initialized() and distributed.get_world_size() > 1
+
+def maybe_distributed_mean(t):
+    if not is_distributed():
+        return t
+
+    distributed.all_reduce(t)
+    t = t / distributed.get_world_size()
+    return t
+
 # regularization losses
 
 def orthogonal_loss_fn(t):
@@ -302,6 +314,8 @@ class EuclideanCodebook(Module):
         assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+
+        self.distributed_replace_codes = distributed_replace_codes
         self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans and distributed_replace_codes else batched_sample_vectors
 
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
@@ -433,9 +447,11 @@ class EuclideanCodebook(Module):
         for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
-            
-            self.embed.data[ind][mask] = sampled
 
+            if not self.distributed_replace_codes:
+                sampled = maybe_distributed_mean(sampled)
+
+            self.embed.data[ind][mask] = sampled
             self.cluster_size.data[ind][mask] = self.reset_cluster_size
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
 
@@ -573,6 +589,8 @@ class CosineSimCodebook(Module):
         self.sample_codebook_temp = sample_codebook_temp
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+
+        self.distributed_replace_codes = distributed_replace_codes
         self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans and distributed_replace_codes else batched_sample_vectors
 
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
@@ -619,6 +637,9 @@ class CosineSimCodebook(Module):
         for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
+
+            if not self.distributed_replace_codes:
+                sampled = maybe_distributed_mean(sampled)
 
             self.embed.data[ind][mask] = sampled
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
@@ -808,7 +829,7 @@ class VectorQuantize(Module):
         )
 
         if not exists(sync_codebook):
-            sync_codebook = distributed.is_initialized() and distributed.get_world_size() > 1
+            sync_codebook = is_distributed()
 
         codebook_kwargs = dict(
             dim = codebook_dim,
