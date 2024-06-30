@@ -146,7 +146,7 @@ class ResidualFSQ(Module):
         x = self.project_in(x)
 
         quantized_out = 0.
-        residual = first(self.layers).bound(x)
+        residual = first(self.layers).bound(x).to(x.dtype)
 
         all_indices = []
 
