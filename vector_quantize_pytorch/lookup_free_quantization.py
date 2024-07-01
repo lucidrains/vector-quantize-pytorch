@@ -270,7 +270,8 @@ class LFQ(Module):
 
         assert x.shape[-1] == self.dim, f'expected dimension of {self.dim} but received {x.shape[-1]}'
 
-        x = self.project_in(x)
+        with autocast():
+            x = self.project_in(x)
 
         # maybe soft clamp
 
@@ -382,7 +383,8 @@ class LFQ(Module):
 
         # project out to feature dimension if needed
 
-        x = self.project_out(x)
+        with autocast():
+            x = self.project_out(x)
 
         # reconstitute image or video dimensions
 
