@@ -198,7 +198,7 @@ class LFQ(Module):
         bits = ((all_codes[..., None].int() & self.mask) != 0).float()
         codebook = self.bits_to_codes(bits)
 
-        self.register_buffer('codebook', codebook, persistent = False)
+        self.register_buffer('codebook', codebook.float(), persistent = False)
 
     def bits_to_codes(self, bits):
         return bits * self.codebook_scale * 2 - self.codebook_scale
@@ -257,6 +257,7 @@ class LFQ(Module):
         c - number of codebook dim
         """
 
+        orig_dtype = x.dtype
         x = x.float()
 
         is_img_or_video = x.ndim >= 4
@@ -313,7 +314,7 @@ class LFQ(Module):
         # entropy aux loss
 
         if self.training:
-            codebook = self.codebook
+            codebook = self.codebook.float()
 
             codebook = self.maybe_l2norm(codebook)
 
@@ -402,6 +403,12 @@ class LFQ(Module):
         # complete aux loss
 
         aux_loss = entropy_aux_loss * self.entropy_loss_weight + commit_loss * self.commitment_loss_weight
+
+        # restore original dtype
+
+        x = x.type(orig_dtype)
+
+        # returns
 
         ret = Return(x, indices, aux_loss)
 
