@@ -9,6 +9,7 @@ An entropy penalty is used to encourage utilization.
 from math import log2, ceil
 from functools import partial, cache
 from collections import namedtuple
+from contextlib import nullcontext
 import torch.distributed as dist
 
 import torch
@@ -112,7 +113,8 @@ class LFQ(Module):
         channel_first = None,
         experimental_softplus_entropy_loss = False,
         entropy_loss_offset = 5.,                   # how much to shift the loss before softplus
-        spherical = False                           # from https://arxiv.org/abs/2406.07548
+        spherical = False,                          # from https://arxiv.org/abs/2406.07548
+        force_quantization_f32 = True               # will force the quantization step to be full precision
     ):
         super().__init__()
 
@@ -192,6 +194,10 @@ class LFQ(Module):
         self.register_buffer('mask', 2 ** torch.arange(codebook_dim - 1, -1, -1))
         self.register_buffer('zero', torch.tensor(0.), persistent = False)
 
+        # whether to force quantization step to be f32
+
+        self.force_quantization_f32 = force_quantization_f32
+
         # codes
 
         all_codes = torch.arange(codebook_size)
@@ -241,7 +247,6 @@ class LFQ(Module):
 
         return codes
 
-    @autocast(enabled = False)
     def forward(
         self,
         x,
@@ -257,9 +262,6 @@ class LFQ(Module):
         c - number of codebook dim
         """
 
-        orig_dtype = x.dtype
-        x = x.float()
-
         is_img_or_video = x.ndim >= 4
         should_transpose = default(self.channel_first, is_img_or_video)
 
@@ -271,8 +273,7 @@ class LFQ(Module):
 
         assert x.shape[-1] == self.dim, f'expected dimension of {self.dim} but received {x.shape[-1]}'
 
-        with autocast():
-            x = self.project_in(x)
+        x = self.project_in(x)
 
         # maybe soft clamp
 
@@ -288,95 +289,114 @@ class LFQ(Module):
 
         x = self.maybe_l2norm(x)
 
-        # quantize by eq 3.
+        # whether to force quantization step to be full precision or not
 
-        original_input = x
+        force_f32 = self.force_quantization_f32
 
-        codebook_value = torch.ones_like(x) * self.codebook_scale
-        quantized = torch.where(x > 0, codebook_value, -codebook_value)
+        quantization_context = partial(autocast, enabled = False) if force_f32 else nullcontext
 
-        # calculate indices
+        with quantization_context():
 
-        indices = reduce((quantized > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
+            if force_f32:
+                orig_dtype = x.dtype
+                x = x.float()
 
-        # maybe l2norm
+            # quantize by eq 3.
 
-        quantized = self.maybe_l2norm(quantized)
+            original_input = x
 
-        # use straight-through gradients (optionally with custom activation fn) if training
+            codebook_value = torch.ones_like(x) * self.codebook_scale
+            quantized = torch.where(x > 0, codebook_value, -codebook_value)
 
-        if self.training:
-            x = self.activation(x)
-            x = x + (quantized - x).detach()
-        else:
-            x = quantized
+            # calculate indices
 
-        # entropy aux loss
+            indices = reduce((quantized > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
 
-        if self.training:
-            codebook = self.codebook.float()
+            # maybe l2norm
 
-            codebook = self.maybe_l2norm(codebook)
+            quantized = self.maybe_l2norm(quantized)
 
-            # the same as euclidean distance up to a constant
-            distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
+            # use straight-through gradients (optionally with custom activation fn) if training
 
-            prob = (-distance * inv_temperature).softmax(dim = -1)
-
-            # account for mask
-
-            if exists(mask):
-                prob = prob[mask]
+            if self.training:
+                x = self.activation(x)
+                x = x + (quantized - x).detach()
             else:
-                prob = rearrange(prob, 'b n ... -> (b n) ...')
+                x = quantized
 
-            # whether to only use a fraction of probs, for reducing memory
+            # entropy aux loss
 
-            if self.frac_per_sample_entropy < 1.:
-                num_tokens = prob.shape[0]
-                num_sampled_tokens = int(num_tokens * self.frac_per_sample_entropy)
-                rand_mask = torch.randn(num_tokens).argsort(dim = -1) < num_sampled_tokens
-                per_sample_probs = prob[rand_mask]
+            if self.training:
+
+                if force_f32:
+                    codebook = self.codebook.float()
+
+                codebook = self.maybe_l2norm(codebook)
+
+                # the same as euclidean distance up to a constant
+                distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
+
+                prob = (-distance * inv_temperature).softmax(dim = -1)
+
+                # account for mask
+
+                if exists(mask):
+                    prob = prob[mask]
+                else:
+                    prob = rearrange(prob, 'b n ... -> (b n) ...')
+
+                # whether to only use a fraction of probs, for reducing memory
+
+                if self.frac_per_sample_entropy < 1.:
+                    num_tokens = prob.shape[0]
+                    num_sampled_tokens = int(num_tokens * self.frac_per_sample_entropy)
+                    rand_mask = torch.randn(num_tokens).argsort(dim = -1) < num_sampled_tokens
+                    per_sample_probs = prob[rand_mask]
+                else:
+                    per_sample_probs = prob
+
+                # calculate per sample entropy
+
+                per_sample_entropy = entropy(per_sample_probs).mean()
+
+                # distribution over all available tokens in the batch
+
+                avg_prob = reduce(per_sample_probs, '... c d -> c d', 'mean')
+
+                avg_prob = maybe_distributed_mean(avg_prob)
+
+                codebook_entropy = entropy(avg_prob).mean()
+
+                # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
+                # 2. codebook entropy will be nudged to be high, to encourage all codes to be uniformly used within the batch
+
+                entropy_aux_loss = per_sample_entropy - self.diversity_gamma * codebook_entropy
             else:
-                per_sample_probs = prob
+                # if not training, just return dummy 0
+                entropy_aux_loss = per_sample_entropy = codebook_entropy = self.zero
 
-            # calculate per sample entropy
+            # whether to make the entropy loss positive or not through a (shifted) softplus
 
-            per_sample_entropy = entropy(per_sample_probs).mean()
+            if self.training and self.experimental_softplus_entropy_loss:
+                entropy_aux_loss = F.softplus(entropy_aux_loss + self.entropy_loss_offset)
 
-            # distribution over all available tokens in the batch
+            # commit loss
 
-            avg_prob = reduce(per_sample_probs, '... c d -> c d', 'mean')
+            if self.training and self.commitment_loss_weight > 0.:
 
-            avg_prob = maybe_distributed_mean(avg_prob)
+                commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
 
-            codebook_entropy = entropy(avg_prob).mean()
+                if exists(mask):
+                    commit_loss = commit_loss[mask]
 
-            # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
-            # 2. codebook entropy will be nudged to be high, to encourage all codes to be uniformly used within the batch
+                commit_loss = commit_loss.mean()
+            else:
+                commit_loss = self.zero
 
-            entropy_aux_loss = per_sample_entropy - self.diversity_gamma * codebook_entropy
-        else:
-            # if not training, just return dummy 0
-            entropy_aux_loss = per_sample_entropy = codebook_entropy = self.zero
+            # input back to original dtype if needed
 
-        # whether to make the entropy loss positive or not through a (shifted) softplus
-
-        if self.training and self.experimental_softplus_entropy_loss:
-            entropy_aux_loss = F.softplus(entropy_aux_loss + self.entropy_loss_offset)
-
-        # commit loss
-
-        if self.training and self.commitment_loss_weight > 0.:
-
-            commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
-
-            if exists(mask):
-                commit_loss = commit_loss[mask]
-
-            commit_loss = commit_loss.mean()
-        else:
-            commit_loss = self.zero
+            if force_f32:
+                x = x.type(orig_dtype)
 
         # merge back codebook dim
 
@@ -384,8 +404,7 @@ class LFQ(Module):
 
         # project out to feature dimension if needed
 
-        with autocast():
-            x = self.project_out(x)
+        x = self.project_out(x)
 
         # reconstitute image or video dimensions
 
@@ -403,10 +422,6 @@ class LFQ(Module):
         # complete aux loss
 
         aux_loss = entropy_aux_loss * self.entropy_loss_weight + commit_loss * self.commitment_loss_weight
-
-        # restore original dtype
-
-        x = x.type(orig_dtype)
 
         # returns
 
