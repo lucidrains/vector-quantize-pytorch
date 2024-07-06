@@ -4,7 +4,8 @@ Code adapted from Jax version in Appendix A.1
 """
 
 from __future__ import annotations
-from functools import wraps
+from functools import wraps, partial
+from contextlib import nullcontext
 from typing import List, Tuple
 
 import torch
@@ -61,6 +62,7 @@ class FSQ(Module):
         channel_first: bool = False,
         projection_has_bias: bool = True,
         return_indices = True,
+        force_quantization_f32 = True
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -99,6 +101,7 @@ class FSQ(Module):
             self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
 
         self.allowed_dtypes = allowed_dtypes
+        self.force_quantization_f32 = force_quantization_f32
 
     def bound(self, z, eps: float = 1e-3):
         """ Bound `z`, an array of shape (..., d). """
@@ -166,7 +169,6 @@ class FSQ(Module):
         c - number of codebook dim
         """
 
-        orig_dtype = z.dtype
         is_img_or_video = z.ndim >= 4
         need_move_channel_last = is_img_or_video or self.channel_first
 
@@ -182,25 +184,28 @@ class FSQ(Module):
 
         z = rearrange(z, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
-        # make sure allowed dtype before quantizing
+        # whether to force quantization step to be full precision or not
 
-        if z.dtype not in self.allowed_dtypes:
-            z = z.float()
+        force_f32 = self.force_quantization_f32
+        quantization_context = partial(autocast, enabled = False) if force_f32 else nullcontext
 
-        codes = self.quantize(z)
+        with quantization_context():
+            orig_dtype = z.dtype
 
-        # returning indices could be optional
+            if force_f32 and orig_dtype not in self.allowed_dtypes:
+                z = z.float()
 
-        indices = None
+            codes = self.quantize(z)
 
-        if self.return_indices:
-            indices = self.codes_to_indices(codes)
+            # returning indices could be optional
 
-        codes = rearrange(codes, 'b n c d -> b n (c d)')
+            indices = None
 
-        # cast codes back to original dtype
+            if self.return_indices:
+                indices = self.codes_to_indices(codes)
 
-        if codes.dtype != orig_dtype:
+            codes = rearrange(codes, 'b n c d -> b n (c d)')
+
             codes = codes.type(orig_dtype)
 
         # project out
