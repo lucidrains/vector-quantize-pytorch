@@ -171,7 +171,7 @@ class ResidualVQ(Module):
 
             elif is_distributed():
                 # in distributed environment, synchronize a random seed value if not given
-                t = torch.tensor(random.randrange(10_000))
+                t = torch.tensor(random.randrange(10_000), device = device)
                 dropout_seed = dist.all_reduce(t).item()
                 rand = random.Random(dropout_seed)
 
