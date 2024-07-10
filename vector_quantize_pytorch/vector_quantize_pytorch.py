@@ -312,7 +312,7 @@ class EuclideanCodebook(Module):
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
-        self.register_buffer('cluster_size', torch.zeros(num_codebooks, codebook_size))
+        self.register_buffer('cluster_size', torch.ones(num_codebooks, codebook_size))
         self.register_buffer('embed_avg', embed.clone())
 
         self.learnable_codebook = learnable_codebook
@@ -582,7 +582,7 @@ class CosineSimCodebook(Module):
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
         self.register_buffer('initted', torch.Tensor([not kmeans_init]))
-        self.register_buffer('cluster_size', torch.zeros(num_codebooks, codebook_size))
+        self.register_buffer('cluster_size', torch.ones(num_codebooks, codebook_size))
         self.register_buffer('embed_avg', embed.clone())
 
         self.learnable_codebook = learnable_codebook

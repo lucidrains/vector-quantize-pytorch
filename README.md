@@ -679,3 +679,12 @@ assert loss.item() >= 0
     primaryClass = {cs.LG}
 }
 ```
+
+```bibtex
+@inproceedings{Irie2023SelfOrganisingND,
+    title   = {Self-Organising Neural Discrete Representation Learning \`a la Kohonen},
+    author  = {Kazuki Irie and R'obert Csord'as and J{\"u}rgen Schmidhuber},
+    year    = {2023},
+    url     = {https://api.semanticscholar.org/CorpusID:256901024}
+}
+```
