@@ -59,7 +59,7 @@ def test_vq_mask():
     assert torch.allclose(quantized, mask_quantized[:, :512])
     assert torch.allclose(indices, mask_indices[:, :512])
 
-    assert torch.allclose(mask_quantized[:, 512:], x[:, 512:])
+    assert (mask_quantized[:, 512:] == 0.).all()
     assert (mask_indices[:, 512:] == -1).all()
 
 def test_residual_vq():

@@ -759,6 +759,7 @@ class VectorQuantize(Module):
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9, 
         sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
+        return_zeros_for_masked_padding = True
     ):
         super().__init__()
         self.dim = dim
@@ -854,6 +855,9 @@ class VectorQuantize(Module):
         self.channel_last = channel_last
 
         self.register_buffer('zero', torch.tensor(0.), persistent = False)
+
+        # for variable lengthed sequences, whether to take care of masking out the padding to 0 (or return the original input)
+        self.return_zeros_for_masked_padding = return_zeros_for_masked_padding
 
     @property
     def codebook(self):
@@ -1133,11 +1137,16 @@ class VectorQuantize(Module):
         # if masking, only return quantized for where mask has True
 
         if exists(mask):
+            masked_out_value = orig_input
+
+            if self.return_zeros_for_masked_padding:
+                masked_out_value = torch.zeros_like(orig_input)
+
             quantize = einx.where(
                 'b n, b n d, b n d -> b n d',
                 mask,
                 quantize,
-                orig_input
+                masked_out_value
             )
 
             embed_ind = einx.where(
