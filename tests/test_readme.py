@@ -37,6 +37,31 @@ def test_vq_eval():
     quantized, indices, commit_loss = vq(x)
     assert torch.allclose(quantized, vq.get_output_from_indices(indices))
 
+def test_vq_mask():
+    from vector_quantize_pytorch import VectorQuantize
+
+    vq = VectorQuantize(
+        dim = 256,
+        codebook_size = 512,     # codebook size
+        decay = 1.,             # the exponential moving average decay, lower means the dictionary will change faster
+        commitment_weight = 1.   # the weight on the commitment loss
+    )
+
+    x = torch.randn(1, 1024, 256)
+    lens = torch.full((1,), 512)
+
+    vq.train()
+
+    quantized, indices, commit_loss = vq(x[:, :512])
+    mask_quantized, mask_indices, mask_commit_loss = vq(x, lens = lens)
+
+    assert torch.allclose(commit_loss, mask_commit_loss)
+    assert torch.allclose(quantized, mask_quantized[:, :512])
+    assert torch.allclose(indices, mask_indices[:, :512])
+
+    assert torch.allclose(mask_quantized[:, 512:], x[:, 512:])
+    assert (mask_indices[:, 512:] == -1).all()
+
 def test_residual_vq():
     from vector_quantize_pytorch import ResidualVQ
 

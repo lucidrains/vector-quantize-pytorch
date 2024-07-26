@@ -1,6 +1,6 @@
 [project]
 name = "vector-quantize-pytorch"
-version = "1.15.3"
+version = "1.15.4"
 description = "Vector Quantization - Pytorch"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
@@ -25,7 +25,7 @@ classifiers=[
 dependencies = [
     "torch>=2.0",
     "einops>=0.8.0",
-    "einx>=0.2.2",
+    "einx>=0.3.0",
 ]
 
 [project.urls]

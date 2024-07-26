@@ -3,12 +3,13 @@ from collections import namedtuple
 
 import torch
 from torch.nn import Module
-from torch import nn, einsum
+from torch import nn, einsum, Tensor
 import torch.nn.functional as F
 import torch.distributed as distributed
 from torch.optim import Optimizer
 from torch.cuda.amp import autocast
 
+import einx
 from einops import rearrange, repeat, reduce, pack, unpack
 
 from typing import Callable
@@ -62,6 +63,10 @@ def pack_one(t, pattern):
 
 def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
+
+def lens_to_mask(lens, max_length):
+    seq = torch.arange(max_length, device = lens.device)
+    return seq < lens[:, None]
 
 def uniform_init(*shape):
     t = torch.empty(shape)
@@ -897,11 +902,21 @@ class VectorQuantize(Module):
         x,
         indices = None,
         mask = None,
+        lens = None,
         sample_codebook_temp = None,
         freeze_codebook = False,
         return_loss_breakdown = False,
     ):
         orig_input = x
+
+        # handle masking, either passed in as `mask` or `lens`
+
+        assert not (exists(mask) and exists(lens))
+
+        if exists(lens):
+            mask = lens_to_mask(lens, x.shape[1])
+
+        # handle one token given
 
         only_one = x.ndim == 2
 
@@ -917,6 +932,7 @@ class VectorQuantize(Module):
         # rearrange inputs
 
         if self.accept_image_fmap:
+            assert not exists(mask)
             height, width = x.shape[-2:]
             x = rearrange(x, 'b c h w -> b (h w) c')
 
@@ -1117,10 +1133,18 @@ class VectorQuantize(Module):
         # if masking, only return quantized for where mask has True
 
         if exists(mask):
-            quantize = torch.where(
-                rearrange(mask, '... -> ... 1'),
+            quantize = einx.where(
+                'b n, b n d, b n d -> b n d',
+                mask,
                 quantize,
                 orig_input
+            )
+
+            embed_ind = einx.where(
+                'b n, b n ..., -> b n ...',
+                mask,
+                embed_ind,
+                -1
             )
 
         if not return_loss_breakdown:
