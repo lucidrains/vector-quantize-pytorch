@@ -84,6 +84,14 @@ class ResidualVQ(Module):
 
         for vq in rest_vq:
             vq._codebook = codebook
+    
+    @property
+    def codebook_size(self):
+        return self.layers[0].codebook_size
+    
+    @property
+    def codebook_dim(self):
+        return self.layers[0].codebook_dim
 
     @property
     def codebooks(self):
