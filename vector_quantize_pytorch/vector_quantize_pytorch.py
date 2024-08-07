@@ -7,7 +7,6 @@ from torch import nn, einsum, Tensor
 import torch.nn.functional as F
 import torch.distributed as distributed
 from torch.optim import Optimizer
-from torch.cuda.amp import autocast
 
 import einx
 from einops import rearrange, repeat, reduce, pack, unpack
@@ -459,7 +458,7 @@ class EuclideanCodebook(Module):
         batch_samples = rearrange(batch_samples, 'h ... d -> h (...) d')
         self.replace(batch_samples, batch_mask = expired_codes)
 
-    @autocast(enabled = False)
+    @torch.amp.autocast('cuda', enabled = False)
     def forward(
         self,
         x,
@@ -644,7 +643,7 @@ class CosineSimCodebook(Module):
         batch_samples = rearrange(batch_samples, 'h ... d -> h (...) d')
         self.replace(batch_samples, batch_mask = expired_codes)
 
-    @autocast(enabled = False)
+    @torch.amp.autocast('cuda', enabled = False)
     def forward(
         self,
         x,

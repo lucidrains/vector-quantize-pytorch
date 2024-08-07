@@ -8,7 +8,6 @@ import torch
 from torch import nn
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
 
 from vector_quantize_pytorch.finite_scalar_quantization import FSQ
 
@@ -167,7 +166,7 @@ class ResidualFSQ(Module):
 
         # go through the layers
 
-        with autocast(enabled = False):
+        with torch.amp.autocast('cuda', enabled = False):
             for quantizer_index, (layer, scale) in enumerate(zip(self.layers, self.scales)):
 
                 if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
