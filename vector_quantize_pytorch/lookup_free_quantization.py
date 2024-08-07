@@ -16,7 +16,6 @@ import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 from torch.nn import Module
-from torch.cuda.amp import autocast
 
 from einops import rearrange, reduce, pack, unpack
 
@@ -293,9 +292,9 @@ class LFQ(Module):
 
         force_f32 = self.force_quantization_f32
 
-        quantization_context = partial(autocast, enabled = False) if force_f32 else nullcontext
+        quantization_context = partial(torch.amp.autocast, enabled = False) if force_f32 else nullcontext
 
-        with quantization_context():
+        with quantization_context('cuda'):
 
             if force_f32:
                 orig_dtype = x.dtype
