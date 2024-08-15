@@ -688,3 +688,14 @@ assert loss.item() >= 0
     url     = {https://api.semanticscholar.org/CorpusID:256901024}
 }
 ```
+
+```bibtex
+@article{Huijben2024ResidualQW,
+    title   = {Residual Quantization with Implicit Neural Codebooks},
+    author  = {Iris Huijben and Matthijs Douze and Matthew Muckley and Ruud van Sloun and Jakob Verbeek},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2401.14732},
+    url     = {https://api.semanticscholar.org/CorpusID:267301189}
+}
+```

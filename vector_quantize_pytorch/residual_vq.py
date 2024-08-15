@@ -22,6 +22,9 @@ from einx import get_at
 def exists(val):
     return val is not None
 
+def first(it):
+    return it[0]
+
 def default(val, d):
     return val if exists(val) else d
 
@@ -33,6 +36,64 @@ def round_up_multiple(num, mult):
 @cache
 def is_distributed():
     return dist.is_initialized() and dist.get_world_size() > 1
+
+# the mlp for generating the neural implicit codebook
+# from Huijben et al. https://arxiv.org/abs/2401.14732
+
+class MLP(Module):
+    def __init__(
+        self,
+        dim,
+        dim_hidden = None,
+        depth = 4,             # they used 4 layers in the paper
+        l2norm_output = False
+    ):
+        super().__init__()
+        dim_hidden = default(dim_hidden, dim)
+
+        self.proj_in = nn.Linear(2 * dim, dim)
+
+        layers = ModuleList([])
+
+        for _ in range(depth):
+            layers.append(nn.Sequential(
+                nn.Linear(dim, dim_hidden),
+                nn.SiLU(),
+                nn.Linear(dim_hidden, dim)
+            ))
+
+        self.layers = layers
+        self.l2norm_output = l2norm_output
+
+    def forward(
+        self,
+        codes,
+        *,
+        condition
+    ):
+        one_headed = codes.ndim == 2
+
+        if one_headed:
+            codes = rearrange(codes, 'c d -> 1 c d')
+
+        heads, num_codes, batch, seq_len = codes.shape[0], codes.shape[-2], condition.shape[0], condition.shape[-2]
+
+        codes = repeat(codes, 'h c d -> h b n c d', n = seq_len, b = batch)
+        condition = repeat(condition, 'b n d -> h b n c d', c = num_codes, h = heads)
+
+        x = torch.cat((condition, codes), dim = -1)
+        x = self.proj_in(x)
+
+        for layer in self.layers:
+            x = layer(x) + x
+
+        if self.l2norm_output:
+            x = F.normalize(x, dim = -1)
+
+        if not one_headed:
+            return x
+
+        return rearrange(x, '1 ... -> ...')
 
 # main class
 
@@ -50,7 +111,9 @@ class ResidualVQ(Module):
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
         accept_image_fmap = False,
-        **kwargs
+        implicit_neural_codebook = False, # QINCo from https://arxiv.org/abs/2401.14732
+        mlp_kwargs: dict = dict(),
+        **vq_kwargs
     ):
         super().__init__()
         assert heads == 1, 'residual vq is not compatible with multi-headed codes'
@@ -65,7 +128,16 @@ class ResidualVQ(Module):
         self.num_quantizers = num_quantizers
 
         self.accept_image_fmap = accept_image_fmap
-        self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
+
+        self.implicit_neural_codebook = implicit_neural_codebook
+
+        if implicit_neural_codebook:
+            vq_kwargs.update(
+                learnable_codebook = True,
+                ema_update = False
+            )
+
+        self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **vq_kwargs) for _ in range(num_quantizers)])
 
         assert all([not vq.has_projections for vq in self.layers])
 
@@ -75,6 +147,12 @@ class ResidualVQ(Module):
 
         self.quantize_dropout_cutoff_index = quantize_dropout_cutoff_index
         self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
+
+        # setting up the MLPs for implicit neural codebooks
+
+        self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
+
+        # sharing codebook logic
 
         if not shared_codebook:
             return
@@ -120,7 +198,31 @@ class ResidualVQ(Module):
         mask = indices == -1.
         indices = indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
 
-        all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
+        if not self.implicit_neural_codebook:
+            # gather all the codes
+
+            all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
+
+        else:
+            # else if using implicit neural codebook, codes will need to be derived layer by layer
+
+            code_transform_mlps = (None, *self.mlps)
+
+            all_codes = []
+            quantized_out = 0.
+
+            for codes, indices, maybe_transform_mlp in zip(self.codebooks, indices.unbind(dim = -1), code_transform_mlps):
+
+                if exists(maybe_transform_mlp):
+                    codes = maybe_transform_mlp(codes, condition = quantized_out)
+                    layer_codes = get_at('b n [c] d, b n -> b n d', codes, indices)
+                else:
+                    layer_codes = get_at('[c] d, b n -> b n d', codes, indices)
+
+                all_codes.append(layer_codes)
+                quantized_out += layer_codes
+
+            all_codes = torch.stack(all_codes)
 
         # mask out any codes that were dropout-ed
 
@@ -195,9 +297,16 @@ class ResidualVQ(Module):
             null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
             null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
 
+        # setup the mlps for implicit neural codebook
+
+        maybe_code_transforms = (None,) * len(self.layers)
+
+        if self.implicit_neural_codebook:
+            maybe_code_transforms = (None, *self.mlps)
+
         # go through the layers
 
-        for quantizer_index, layer in enumerate(self.layers):
+        for quantizer_index, (vq, maybe_mlp) in enumerate(zip(self.layers, maybe_code_transforms)):
 
             if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
                 all_indices.append(null_indices)
@@ -208,12 +317,20 @@ class ResidualVQ(Module):
             if return_loss:
                 layer_indices = indices[..., quantizer_index]
 
-            quantized, *rest = layer(
+            # setup the transform code function to be passed into VectorQuantize forward
+
+            if exists(maybe_mlp):
+                maybe_mlp = partial(maybe_mlp, condition = quantized_out)
+
+            # vector quantize forward
+
+            quantized, *rest = vq(
                 residual,
                 mask = mask,
                 indices = layer_indices,
                 sample_codebook_temp = sample_codebook_temp,
-                freeze_codebook = freeze_codebook
+                freeze_codebook = freeze_codebook,
+                codebook_transform_fn = maybe_mlp
             )
 
             residual = residual - quantized.detach()

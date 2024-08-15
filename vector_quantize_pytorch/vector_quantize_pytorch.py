@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from functools import partial, cache
 from collections import namedtuple
 
@@ -59,10 +61,13 @@ def ema_inplace(old, new, decay):
         old.mul_(decay).add_(new * (1 - decay))
 
 def pack_one(t, pattern):
-    return pack([t], pattern)
+    packed, ps = pack([t], pattern)
 
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
+    def unpack_one(to_unpack, unpack_pattern = None):
+        unpacked, = unpack(to_unpack, ps, default(unpack_pattern, pattern))
+        return unpacked
+
+    return packed, unpack_one
 
 def lens_to_mask(lens, max_length):
     seq = torch.arange(max_length, device = lens.device)
@@ -465,7 +470,8 @@ class EuclideanCodebook(Module):
         x,
         sample_codebook_temp = None,
         mask = None,
-        freeze_codebook = False
+        freeze_codebook = False,
+        codebook_transform_fn: Callable | None = None
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -476,7 +482,7 @@ class EuclideanCodebook(Module):
             x = rearrange(x, '... -> 1 ...')
 
         dtype = x.dtype
-        flatten, ps = pack_one(x, 'h * d')
+        flatten, unpack_one = pack_one(x, 'h * d')
 
         if exists(mask):
             mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
@@ -486,22 +492,44 @@ class EuclideanCodebook(Module):
         if self.affine_param:
             self.update_affine(flatten, self.embed, mask = mask)
 
-        embed = self.embed if self.learnable_codebook else self.embed.detach()
+        # affine params
 
         if self.affine_param:
             codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
             embed = (embed - self.codebook_mean) * (batch_std / codebook_std) + self.batch_mean
 
-        dist = -cdist(flatten, embed)
+        # get maybe learnable codes
+
+        embed = self.embed if self.learnable_codebook else self.embed.detach()
+
+        # handle maybe implicit neural codebook
+        # and calculate distance
+
+        if exists(codebook_transform_fn):
+            transformed_embed = codebook_transform_fn(embed)
+            transformed_embed = rearrange(transformed_embed, 'h b n c d -> h (b n) c d')
+            broadcastable_input = rearrange(flatten, '... d -> ... 1 d')
+
+            dist = -F.pairwise_distance(broadcastable_input, transformed_embed)
+        else:
+            dist = -cdist(flatten, embed)
+
+        # sample or argmax depending on temperature
 
         embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
 
-        embed_ind = unpack_one(embed_ind, ps, 'h *')
+        embed_ind = unpack_one(embed_ind, 'h *')
 
         if self.training:
-            unpacked_onehot = unpack_one(embed_onehot, ps, 'h * c')
-            quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+            unpacked_onehot = unpack_one(embed_onehot, 'h * c')
+
+            if exists(codebook_transform_fn):
+                transformed_embed = unpack_one(transformed_embed, 'h * c d')
+                quantize = einsum('h b n c, h b n c d -> h b n d', unpacked_onehot, transformed_embed)
+            else:
+                quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+
         else:
             quantize = batched_embedding(embed_ind, embed)
 
@@ -533,7 +561,7 @@ class EuclideanCodebook(Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
-        dist = unpack_one(dist, ps, 'h * d')
+        dist = unpack_one(dist, 'h * d')
 
         return quantize, embed_ind, dist
 
@@ -650,7 +678,8 @@ class CosineSimCodebook(Module):
         x,
         sample_codebook_temp = None,
         mask = None,
-        freeze_codebook = False
+        freeze_codebook = False,
+        codebook_transform_fn: Callable | None = None
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -662,7 +691,7 @@ class CosineSimCodebook(Module):
 
         dtype = x.dtype
 
-        flatten, ps = pack_one(x, 'h * d')
+        flatten, unpack_one = pack_one(x, 'h * d')
 
         if exists(mask):
             mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
@@ -671,14 +700,30 @@ class CosineSimCodebook(Module):
 
         embed = self.embed if self.learnable_codebook else self.embed.detach()
 
-        dist = einsum('h n d, h c d -> h n c', flatten, embed)
+        # handle maybe implicit neural codebook
+        # and compute cosine sim distance
+
+        if exists(codebook_transform_fn):
+            transformed_embed = codebook_transform_fn(embed)
+            transformed_embed = rearrange(transformed_embed, 'h b n c d -> h (b n) c d')
+            transformed_embed = l2norm(transformed_embed)
+
+            dist = einsum('h n d, h n c d -> h n c', flatten, transformed_embed)
+        else:
+            dist = einsum('h n d, h c d -> h n c', flatten, embed)
 
         embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
-        embed_ind = unpack_one(embed_ind, ps, 'h *')
+        embed_ind = unpack_one(embed_ind, 'h *')
 
         if self.training:
-            unpacked_onehot = unpack_one(embed_onehot, ps, 'h * c')
-            quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+            unpacked_onehot = unpack_one(embed_onehot, 'h * c')
+
+            if exists(codebook_transform_fn):
+                transformed_embed = unpack_one(transformed_embed, 'h * c d')
+                quantize = einsum('h b n c, h b n c d -> h b n d', unpacked_onehot, transformed_embed)
+            else:
+                quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+
         else:
             quantize = batched_embedding(embed_ind, embed)
 
@@ -708,7 +753,7 @@ class CosineSimCodebook(Module):
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
-        dist = unpack_one(dist, ps, 'h * d')
+        dist = unpack_one(dist, 'h * d')
         return quantize, embed_ind, dist
 
 # main class
@@ -845,6 +890,7 @@ class VectorQuantize(Module):
                 affine_param_codebook_decay = affine_param_codebook_decay,
             )
 
+        self.use_cosine_sim = use_cosine_sim
         self._codebook = codebook_class(**codebook_kwargs)
 
         self.in_place_codebook_optimizer = in_place_codebook_optimizer(self._codebook.parameters()) if exists(in_place_codebook_optimizer) else None
@@ -882,7 +928,7 @@ class VectorQuantize(Module):
         if not is_multiheaded:
             codes = codebook[indices]
         else:
-            indices, ps = pack_one(indices, 'b * h')
+            indices, unpack_one = pack_one(indices, 'b * h')
             indices = rearrange(indices, 'b n h -> b h n')
 
             indices = repeat(indices, 'b h n -> b h n d', d = codebook.shape[-1])
@@ -890,7 +936,7 @@ class VectorQuantize(Module):
 
             codes = codebook.gather(2, indices)
             codes = rearrange(codes, 'b h n d -> b n (h d)')
-            codes = unpack_one(codes, ps, 'b * d')
+            codes = unpack_one(codes, 'b * d')
 
         if not self.channel_last:
             codes = rearrange(codes, 'b ... d -> b d ...')
@@ -910,6 +956,7 @@ class VectorQuantize(Module):
         sample_codebook_temp = None,
         freeze_codebook = False,
         return_loss_breakdown = False,
+        codebook_transform_fn: Callable | None = None
     ):
         orig_input = x
 
@@ -962,7 +1009,8 @@ class VectorQuantize(Module):
         codebook_forward_kwargs = dict(
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
-            freeze_codebook = freeze_codebook
+            freeze_codebook = freeze_codebook,
+            codebook_transform_fn = codebook_transform_fn
         )
 
         # quantize
