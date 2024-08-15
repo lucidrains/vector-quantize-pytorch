@@ -245,12 +245,6 @@ def kmeans(
 
     return means, bins
 
-def batched_embedding(indices, embeds):
-    batch, dim = indices.shape[1], embeds.shape[-1]
-    indices = repeat(indices, 'h b n -> h b n d', d = dim)
-    embeds = repeat(embeds, 'h c d -> h b c d', b = batch)
-    return embeds.gather(2, indices)
-
 # distributed helpers
 
 @cache
@@ -521,17 +515,22 @@ class EuclideanCodebook(Module):
 
         embed_ind = unpack_one(embed_ind, 'h *')
 
+        if exists(codebook_transform_fn):
+            transformed_embed = unpack_one(transformed_embed, 'h * c d')
+
         if self.training:
             unpacked_onehot = unpack_one(embed_onehot, 'h * c')
 
             if exists(codebook_transform_fn):
-                transformed_embed = unpack_one(transformed_embed, 'h * c d')
                 quantize = einsum('h b n c, h b n c d -> h b n d', unpacked_onehot, transformed_embed)
             else:
                 quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
 
         else:
-            quantize = batched_embedding(embed_ind, embed)
+            if exists(codebook_transform_fn):
+                quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
+            else:
+                quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
 
         if self.training and self.ema_update and not freeze_codebook:
 
@@ -715,17 +714,22 @@ class CosineSimCodebook(Module):
         embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
         embed_ind = unpack_one(embed_ind, 'h *')
 
+        if exists(codebook_transform_fn):
+            transformed_embed = unpack_one(transformed_embed, 'h * c d')
+
         if self.training:
             unpacked_onehot = unpack_one(embed_onehot, 'h * c')
 
             if exists(codebook_transform_fn):
-                transformed_embed = unpack_one(transformed_embed, 'h * c d')
                 quantize = einsum('h b n c, h b n c d -> h b n d', unpacked_onehot, transformed_embed)
             else:
                 quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
 
         else:
-            quantize = batched_embedding(embed_ind, embed)
+            if exists(codebook_transform_fn):
+                quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
+            else:
+                quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
 
         if self.training and self.ema_update and not freeze_codebook:
             if exists(mask):

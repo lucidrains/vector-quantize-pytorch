@@ -71,14 +71,14 @@ def test_residual_vq(
     from vector_quantize_pytorch import ResidualVQ
 
     residual_vq = ResidualVQ(
-        dim = 256,
+        dim = 32,
         num_quantizers = 8,
-        codebook_size = 1024,
+        codebook_size = 128,
         implicit_neural_codebook = implicit_neural_codebook,
         use_cosine_sim = use_cosine_sim,
     )
 
-    x = torch.randn(1, 1024, 256)
+    x = torch.randn(1, 256, 32)
 
     quantized, indices, commit_loss = residual_vq(x)
     quantized, indices, commit_loss, all_codes = residual_vq(x, return_all_codes = True)
