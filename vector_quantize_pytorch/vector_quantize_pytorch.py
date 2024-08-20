@@ -808,7 +808,8 @@ class VectorQuantize(Module):
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9, 
         sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
-        return_zeros_for_masked_padding = True
+        return_zeros_for_masked_padding = True,
+        calc_commitment_loss_in_eval = False,
     ):
         super().__init__()
         self.dim = dim
@@ -908,6 +909,7 @@ class VectorQuantize(Module):
 
         # for variable lengthed sequences, whether to take care of masking out the padding to 0 (or return the original input)
         self.return_zeros_for_masked_padding = return_zeros_for_masked_padding
+        self.calc_commitment_loss_in_eval = calc_commitment_loss_in_eval
 
     @property
     def codebook(self):
@@ -1207,6 +1209,14 @@ class VectorQuantize(Module):
                 embed_ind,
                 -1
             )
+
+        if self.calc_commitment_loss_in_eval and not self.training:
+            # eval() mode does not need commitment loss.
+            # For computational efficiency, it does not compute it.
+            # MotionGPT uses it, though, so we add it for comparisons.
+            assert commit_loss.item() == 0, commit_loss
+            assert loss.item() == 0, loss
+            loss = commit_loss = F.mse_loss(quantize, x)
 
         if not return_loss_breakdown:
             return quantize, embed_ind, loss
