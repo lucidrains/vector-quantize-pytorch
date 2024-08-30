@@ -751,7 +751,7 @@ class CosineSimCodebook(Module):
             embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
             embed_normalized = l2norm(embed_normalized)
 
-            self.embed.data.copy_(l2norm(embed_normalized))
+            self.embed.data.copy_(embed_normalized)
             self.expire_codes_(x)
 
         if needs_codebook_dim:
