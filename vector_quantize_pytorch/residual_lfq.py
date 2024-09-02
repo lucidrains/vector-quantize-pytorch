@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from vector_quantize_pytorch.lookup_free_quantization import LFQ
 
@@ -156,7 +156,7 @@ class ResidualLFQ(Module):
 
         # go through the layers
 
-        with autocast(enabled = False):
+        with autocast('cuda', enabled = False):
             for quantizer_index, layer in enumerate(self.layers):
 
                 if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:

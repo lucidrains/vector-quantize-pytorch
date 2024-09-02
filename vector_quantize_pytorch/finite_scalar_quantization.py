@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch.nn import Module
 from torch import Tensor, int32
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from einops import rearrange, pack, unpack
 
@@ -159,7 +159,7 @@ class FSQ(Module):
 
         return codes
 
-    @autocast(enabled = False)
+    @autocast('cuda', enabled = False)
     def forward(self, z):
         """
         einstein notation
@@ -187,7 +187,7 @@ class FSQ(Module):
         # whether to force quantization step to be full precision or not
 
         force_f32 = self.force_quantization_f32
-        quantization_context = partial(autocast, enabled = False) if force_f32 else nullcontext
+        quantization_context = partial(autocast, 'cuda', enabled = False) if force_f32 else nullcontext
 
         with quantization_context():
             orig_dtype = z.dtype
