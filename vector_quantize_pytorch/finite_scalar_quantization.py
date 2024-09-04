@@ -159,7 +159,6 @@ class FSQ(Module):
 
         return codes
 
-    @autocast('cuda', enabled = False)
     def forward(self, z):
         """
         einstein notation
