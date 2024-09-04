@@ -10,7 +10,9 @@ from math import log2, ceil
 from functools import partial, cache
 from collections import namedtuple
 from contextlib import nullcontext
+
 import torch.distributed as dist
+from torch.distributed import nn as dist_nn
 
 import torch
 from torch import nn, einsum
@@ -36,7 +38,7 @@ def maybe_distributed_mean(t):
     if not is_distributed():
         return t
 
-    dist.nn.all_reduce(t)
+    dist_nn.all_reduce(t)
     t = t / dist.get_world_size()
     return t
 
