@@ -149,8 +149,11 @@ class ResidualVQ(Module):
         self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
 
         # setting up the MLPs for implicit neural codebooks
+        
+        self.mlps = None
 
-        self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
+        if implicit_neural_codebook:
+            self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
 
         # sharing codebook logic
 
