@@ -818,6 +818,7 @@ class VectorQuantize(Module):
         manual_ema_update = False,
         learnable_codebook = False,
         in_place_codebook_optimizer: Callable[..., Optimizer] = None, # Optimizer used to update the codebook embedding if using learnable_codebook
+        manual_in_place_optimizer_update = False,
         affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9, 
@@ -913,6 +914,7 @@ class VectorQuantize(Module):
         self._codebook = codebook_class(**codebook_kwargs)
 
         self.in_place_codebook_optimizer = in_place_codebook_optimizer(self._codebook.parameters()) if exists(in_place_codebook_optimizer) else None
+        self.manual_in_place_optimizer_update = manual_in_place_optimizer_update
 
         self.codebook_size = codebook_size
 
@@ -965,6 +967,13 @@ class VectorQuantize(Module):
     def get_output_from_indices(self, indices):
         codes = self.get_codes_from_indices(indices)
         return self.project_out(codes)
+
+    def update_in_place_optimizer(self):
+        if not exists(self.in_place_codebook_optimizer):
+            return
+
+        self.in_place_codebook_optimizer.step()
+        self.in_place_codebook_optimizer.zero_grad()
 
     def forward(
         self,
@@ -1057,8 +1066,9 @@ class VectorQuantize(Module):
                 loss = F.mse_loss(quantize, x.detach())
 
             loss.backward()
-            self.in_place_codebook_optimizer.step()
-            self.in_place_codebook_optimizer.zero_grad()
+
+            if not self.manual_in_place_optimizer_update:
+                self.update_in_place_optimizer()
 
             inplace_optimize_loss = loss
 
