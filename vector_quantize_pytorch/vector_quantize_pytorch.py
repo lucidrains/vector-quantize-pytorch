@@ -280,6 +280,7 @@ class EuclideanCodebook(Module):
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
         ema_update = True,
+        manual_ema_update = False,
         affine_param = False,
         sync_affine_param = False,
         affine_param_batch_decay = 0.99,
@@ -290,6 +291,7 @@ class EuclideanCodebook(Module):
 
         self.decay = decay
         self.ema_update = ema_update
+        self.manual_ema_update = manual_ema_update
 
         init_fn = uniform_init if not kmeans_init else torch.zeros
         embed = init_fn(num_codebooks, codebook_size, dim)
@@ -458,6 +460,12 @@ class EuclideanCodebook(Module):
         batch_samples = rearrange(batch_samples, 'h ... d -> h (...) d')
         self.replace(batch_samples, batch_mask = expired_codes)
 
+    def update_ema(self):
+        cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
+
+        embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
+        self.embed.data.copy_(embed_normalized)
+
     @autocast('cuda', enabled = False)
     def forward(
         self,
@@ -551,11 +559,9 @@ class EuclideanCodebook(Module):
 
             ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
-            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
-
-            embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
-            self.embed.data.copy_(embed_normalized)
-            self.expire_codes_(x)
+            if not self.manual_ema_update:
+                self.update_ema()
+                self.expire_codes_(x)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -582,11 +588,14 @@ class CosineSimCodebook(Module):
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
         ema_update = True,
+        manual_ema_update = False
     ):
         super().__init__()
         self.transform_input = l2norm
 
         self.ema_update = ema_update
+        self.manual_ema_update = manual_ema_update
+
         self.decay = decay
 
         if not kmeans_init:
@@ -671,6 +680,14 @@ class CosineSimCodebook(Module):
         batch_samples = rearrange(batch_samples, 'h ... d -> h (...) d')
         self.replace(batch_samples, batch_mask = expired_codes)
 
+    def update_ema(self):
+        cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
+
+        embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
+        embed_normalized = l2norm(embed_normalized)
+
+        self.embed.data.copy_(embed_normalized)
+
     @autocast('cuda', enabled = False)
     def forward(
         self,
@@ -746,13 +763,9 @@ class CosineSimCodebook(Module):
 
             ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
-            cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
-
-            embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
-            embed_normalized = l2norm(embed_normalized)
-
-            self.embed.data.copy_(embed_normalized)
-            self.expire_codes_(x)
+            if not self.manual_ema_update:
+                self.update_ema()
+                self.expire_codes_(x)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -802,6 +815,7 @@ class VectorQuantize(Module):
         sync_codebook = None,
         sync_affine_param = False,
         ema_update = True,
+        manual_ema_update = False,
         learnable_codebook = False,
         in_place_codebook_optimizer: Callable[..., Optimizer] = None, # Optimizer used to update the codebook embedding if using learnable_codebook
         affine_param = False,
@@ -881,7 +895,8 @@ class VectorQuantize(Module):
             learnable_codebook = has_codebook_orthogonal_loss or learnable_codebook,
             sample_codebook_temp = sample_codebook_temp,
             gumbel_sample = gumbel_sample_fn,
-            ema_update = ema_update
+            ema_update = ema_update,
+            manual_ema_update = manual_ema_update
         )
 
         if affine_param:

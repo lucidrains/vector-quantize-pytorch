@@ -137,6 +137,11 @@ class ResidualVQ(Module):
                 ema_update = False
             )
 
+        if shared_codebook:
+            vq_kwargs.update(
+                manual_ema_update = True
+            )
+
         self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **vq_kwargs) for _ in range(num_quantizers)])
 
         assert all([not vq.has_projections for vq in self.layers])
@@ -156,6 +161,8 @@ class ResidualVQ(Module):
             self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
 
         # sharing codebook logic
+
+        self.shared_codebook = shared_codebook
 
         if not shared_codebook:
             return
@@ -348,6 +355,11 @@ class ResidualVQ(Module):
 
             all_indices.append(embed_indices)
             all_losses.append(loss)
+
+        # if shared codebook, update ema only at end
+
+        if self.shared_codebook:
+            first(self.layers)._codebook.update_ema()
 
         # project out, if needed
 
