@@ -139,7 +139,8 @@ class ResidualVQ(Module):
 
         if shared_codebook:
             vq_kwargs.update(
-                manual_ema_update = True
+                manual_ema_update = True,
+                manual_in_place_optimizer_update = True
             )
 
         self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **vq_kwargs) for _ in range(num_quantizers)])
@@ -360,6 +361,7 @@ class ResidualVQ(Module):
 
         if self.shared_codebook:
             first(self.layers)._codebook.update_ema()
+            first(self.layers).update_in_place_optimizer()
 
         # project out, if needed
 
