@@ -975,6 +975,18 @@ class VectorQuantize(Module):
         self.in_place_codebook_optimizer.step()
         self.in_place_codebook_optimizer.zero_grad()
 
+    def maybe_split_heads_from_input(self, x):
+        if self.heads == 1:
+            return x
+
+        ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
+        return rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = self.heads)
+
+    def expire_codes_(self, x):
+        x = self._codebook.transform_input(x)
+        x = self.maybe_split_heads_from_input(x)
+        self._codebook.expire_codes_(x)
+
     def forward(
         self,
         x,
@@ -1024,9 +1036,7 @@ class VectorQuantize(Module):
 
         # handle multi-headed separate codebooks
 
-        if is_multiheaded:
-            ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
-            x = rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = heads)
+        x = self.maybe_split_heads_from_input(x)
 
         # l2norm for cosine sim, otherwise identity
 

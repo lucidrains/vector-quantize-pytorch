@@ -315,6 +315,10 @@ class ResidualVQ(Module):
         if self.implicit_neural_codebook:
             maybe_code_transforms = (None, *self.mlps)
 
+        # save all inputs across layers, for use during expiration at end under shared codebook setting
+
+        all_residuals = []
+
         # go through the layers
 
         for quantizer_index, (vq, maybe_mlp) in enumerate(zip(self.layers, maybe_code_transforms)):
@@ -332,6 +336,10 @@ class ResidualVQ(Module):
 
             if exists(maybe_mlp):
                 maybe_mlp = partial(maybe_mlp, condition = quantized_out)
+
+            # save for expiration
+
+            all_residuals.append(residual)
 
             # vector quantize forward
 
@@ -360,8 +368,10 @@ class ResidualVQ(Module):
         # if shared codebook, update ema only at end
 
         if self.shared_codebook:
-            first(self.layers)._codebook.update_ema()
-            first(self.layers).update_in_place_optimizer()
+            shared_layer = first(self.layers)
+            shared_layer._codebook.update_ema()
+            shared_layer.update_in_place_optimizer()
+            shared_layer.expire_codes_(torch.cat(all_residuals, dim = -2))
 
         # project out, if needed
 
