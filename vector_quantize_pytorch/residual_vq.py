@@ -367,7 +367,7 @@ class ResidualVQ(Module):
 
         # if shared codebook, update ema only at end
 
-        if self.shared_codebook:
+        if self.training and self.shared_codebook:
             shared_layer = first(self.layers)
             shared_layer._codebook.update_ema()
             shared_layer.update_in_place_optimizer()
