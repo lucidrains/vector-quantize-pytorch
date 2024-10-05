@@ -137,6 +137,12 @@ class ResidualVQ(Module):
                 ema_update = False
             )
 
+        if shared_codebook:
+            vq_kwargs.update(
+                manual_ema_update = True,
+                manual_in_place_optimizer_update = True
+            )
+
         self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **vq_kwargs) for _ in range(num_quantizers)])
 
         assert all([not vq.has_projections for vq in self.layers])
@@ -149,10 +155,15 @@ class ResidualVQ(Module):
         self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
 
         # setting up the MLPs for implicit neural codebooks
+        
+        self.mlps = None
 
-        self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
+        if implicit_neural_codebook:
+            self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
 
         # sharing codebook logic
+
+        self.shared_codebook = shared_codebook
 
         if not shared_codebook:
             return
@@ -304,6 +315,10 @@ class ResidualVQ(Module):
         if self.implicit_neural_codebook:
             maybe_code_transforms = (None, *self.mlps)
 
+        # save all inputs across layers, for use during expiration at end under shared codebook setting
+
+        all_residuals = []
+
         # go through the layers
 
         for quantizer_index, (vq, maybe_mlp) in enumerate(zip(self.layers, maybe_code_transforms)):
@@ -321,6 +336,10 @@ class ResidualVQ(Module):
 
             if exists(maybe_mlp):
                 maybe_mlp = partial(maybe_mlp, condition = quantized_out)
+
+            # save for expiration
+
+            all_residuals.append(residual)
 
             # vector quantize forward
 
@@ -345,6 +364,14 @@ class ResidualVQ(Module):
 
             all_indices.append(embed_indices)
             all_losses.append(loss)
+
+        # if shared codebook, update ema only at end
+
+        if self.training and self.shared_codebook:
+            shared_layer = first(self.layers)
+            shared_layer._codebook.update_ema()
+            shared_layer.update_in_place_optimizer()
+            shared_layer.expire_codes_(torch.cat(all_residuals, dim = -2))
 
         # project out, if needed
 

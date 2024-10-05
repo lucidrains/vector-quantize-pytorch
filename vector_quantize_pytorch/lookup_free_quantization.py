@@ -10,13 +10,15 @@ from math import log2, ceil
 from functools import partial, cache
 from collections import namedtuple
 from contextlib import nullcontext
+
 import torch.distributed as dist
+from torch.distributed import nn as dist_nn
 
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 from torch.nn import Module
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from einops import rearrange, reduce, pack, unpack
 
@@ -36,7 +38,7 @@ def maybe_distributed_mean(t):
     if not is_distributed():
         return t
 
-    dist.all_reduce(t)
+    dist_nn.all_reduce(t)
     t = t / dist.get_world_size()
     return t
 
@@ -293,7 +295,7 @@ class LFQ(Module):
 
         force_f32 = self.force_quantization_f32
 
-        quantization_context = partial(autocast, enabled = False) if force_f32 else nullcontext
+        quantization_context = partial(autocast, 'cuda', enabled = False) if force_f32 else nullcontext
 
         with quantization_context():
 
