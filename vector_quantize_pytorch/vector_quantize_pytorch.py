@@ -811,6 +811,7 @@ class VectorQuantize(Module):
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
+        rotation_trick = True,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424.
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = None,
         sync_affine_param = False,
@@ -821,7 +822,7 @@ class VectorQuantize(Module):
         manual_in_place_optimizer_update = False,
         affine_param = False,
         affine_param_batch_decay = 0.99,
-        affine_param_codebook_decay = 0.9, 
+        affine_param_codebook_decay = 0.9,
         sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
         return_zeros_for_masked_padding = True
     ):
@@ -862,6 +863,9 @@ class VectorQuantize(Module):
         self.has_codebook_diversity_loss = has_codebook_diversity_loss
         self.codebook_diversity_temperature = codebook_diversity_temperature
         self.codebook_diversity_loss_weight = codebook_diversity_loss_weight
+
+        assert not (straight_through and rotation_trick)
+        self.rotation_trick = rotation_trick
 
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
 
@@ -941,6 +945,13 @@ class VectorQuantize(Module):
             codes = rearrange(codes, '... -> 1 ...')
 
         self._codebook.embed.copy_(codes)
+
+    @staticmethod
+    def rotation_trick_transform(u, q, e):
+        w = ((u + q) / torch.norm(u + q, dim=1, keepdim=True)).detach()
+        e = e - 2 * torch.bmm(torch.bmm(e, w.unsqueeze(-1)), w.unsqueeze(1)) + 2 * torch.bmm(
+            torch.bmm(e, u.unsqueeze(-1).detach()), q.unsqueeze(1).detach())
+        return e
 
     def get_codes_from_indices(self, indices):
         codebook = self.codebook
@@ -1090,11 +1101,26 @@ class VectorQuantize(Module):
             # determine code to use for commitment loss
             maybe_detach = torch.detach if not self.learnable_codebook or freeze_codebook else identity
 
-            commit_quantize = maybe_detach(quantize)            
+            commit_quantize = maybe_detach(quantize)
 
-            # straight through
+            # Use the rotation trick (https://arxiv.org/abs/2410.06424) to get gradients through VQ layer.
+            if self.rotation_trick:
+                init_shape = x.shape
+                x = x.reshape(-1, init_shape[-1])
+                quantize = quantize.reshape(-1, init_shape[-1])
 
-            quantize = x + (quantize - x).detach()
+                eps = 1e-6  # For numerical stability if any vector is close to 0 norm.
+                rot_quantize = self.rotation_trick_transform(
+                    x / (torch.norm(x, dim=1, keepdim=True) + eps),
+                    quantize / (torch.norm(quantize, dim=1, keepdim=True) + eps),
+                    x.unsqueeze(1)).squeeze()
+                quantize = rot_quantize * (torch.norm(quantize, dim=1, keepdim=True)
+                                           / (torch.norm(x, dim=1, keepdim=True) + 1e-6)).detach()
+
+                x = x.reshape(init_shape)
+                quantize = quantize.reshape(init_shape)
+            else:  # Use STE to get gradients through VQ layer.
+                quantize = x + (quantize - x).detach()
 
             if self.sync_update_v > 0.:
                 # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
