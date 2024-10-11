@@ -28,8 +28,11 @@ def noop(*args, **kwargs):
 def identity(t):
     return t
 
-def l2norm(t):
-    return F.normalize(t, p = 2, dim = -1)
+def l2norm(t, dim = -1,  eps = 1e-6):
+    return F.normalize(t, p = 2, dim = dim, eps = eps)
+
+def safe_div(num, den, eps = 1e-6):
+    return num / den.clamp(min = eps)
 
 def Sequential(*modules):
     modules = [*filter(exists, modules)]
@@ -72,6 +75,19 @@ def pack_one(t, pattern):
 def lens_to_mask(lens, max_length):
     seq = torch.arange(max_length, device = lens.device)
     return seq < lens[:, None]
+
+def efficient_rotation_trick_transform(u, q, e):
+    """
+    4.2 in https://arxiv.org/abs/2410.06424
+    """
+    e = rearrange(e, 'b d -> b 1 d')
+    w = l2norm(u + q, dim = 1).detach()
+
+    return (
+        e -
+        2 * (e @ rearrange(w, 'b d -> b d 1') @ rearrange(w, 'b d -> b 1 d')) +
+        2 * (e @ rearrange(u, 'b d -> b d 1').detach() @ rearrange(q, 'b d -> b 1 d').detach())
+    )
 
 def uniform_init(*shape):
     t = torch.empty(shape)
@@ -811,7 +827,7 @@ class VectorQuantize(Module):
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
-        rotation_trick = True,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424.
+        rotation_trick = True,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424 by @cfifty
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = None,
         sync_affine_param = False,
@@ -945,13 +961,6 @@ class VectorQuantize(Module):
             codes = rearrange(codes, '... -> 1 ...')
 
         self._codebook.embed.copy_(codes)
-
-    @staticmethod
-    def rotation_trick_transform(u, q, e):
-        w = ((u + q) / torch.norm(u + q, dim=1, keepdim=True)).detach()
-        e = e - 2 * torch.bmm(torch.bmm(e, w.unsqueeze(-1)), w.unsqueeze(1)) + 2 * torch.bmm(
-            torch.bmm(e, u.unsqueeze(-1).detach()), q.unsqueeze(1).detach())
-        return e
 
     def get_codes_from_indices(self, indices):
         codebook = self.codebook
@@ -1103,23 +1112,25 @@ class VectorQuantize(Module):
 
             commit_quantize = maybe_detach(quantize)
 
-            # Use the rotation trick (https://arxiv.org/abs/2410.06424) to get gradients through VQ layer.
             if self.rotation_trick:
-                init_shape = x.shape
-                x = x.reshape(-1, init_shape[-1])
-                quantize = quantize.reshape(-1, init_shape[-1])
+                # rotation trick STE (https://arxiv.org/abs/2410.06424) to get gradients through VQ layer.
+                x, inverse = pack_one(x, '* d')
+                quantize, _ = pack_one(quantize, '* d')
 
-                eps = 1e-6  # For numerical stability if any vector is close to 0 norm.
-                rot_quantize = self.rotation_trick_transform(
-                    x / (torch.norm(x, dim=1, keepdim=True) + eps),
-                    quantize / (torch.norm(quantize, dim=1, keepdim=True) + eps),
-                    x.unsqueeze(1)).squeeze()
-                quantize = rot_quantize * (torch.norm(quantize, dim=1, keepdim=True)
-                                           / (torch.norm(x, dim=1, keepdim=True) + 1e-6)).detach()
+                norm_x = x.norm(dim = -1, keepdim = True)
+                norm_quantize = quantize.norm(dim = -1, keepdim = True)
 
-                x = x.reshape(init_shape)
-                quantize = quantize.reshape(init_shape)
-            else:  # Use STE to get gradients through VQ layer.
+                rot_quantize = efficient_rotation_trick_transform(
+                    safe_div(x, norm_x),
+                    safe_div(quantize, norm_quantize),
+                    x
+                ).squeeze()
+
+                quantize = rot_quantize * safe_div(norm_quantize, norm_x).detach()
+
+                x, quantize = inverse(x), inverse(quantize)
+            else:
+                # standard STE to get gradients through VQ layer.
                 quantize = x + (quantize - x).detach()
 
             if self.sync_update_v > 0.:

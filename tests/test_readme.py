@@ -5,8 +5,10 @@ def exists(v):
     return v is not None
 
 @pytest.mark.parametrize('use_cosine_sim', (True, False))
+@pytest.mark.parametrize('rotation_trick', (True, False))
 def test_vq(
-    use_cosine_sim
+    use_cosine_sim,
+    rotation_trick
 ):
     from vector_quantize_pytorch import VectorQuantize
 
@@ -15,7 +17,8 @@ def test_vq(
         codebook_size = 512,                # codebook size
         decay = 0.8,                        # the exponential moving average decay, lower means the dictionary will change faster
         commitment_weight = 1.,             # the weight on the commitment loss
-        use_cosine_sim = use_cosine_sim
+        use_cosine_sim = use_cosine_sim,
+        rotation_trick = rotation_trick
     )
 
     x = torch.randn(1, 1024, 256)
