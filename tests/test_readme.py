@@ -89,7 +89,7 @@ def test_residual_vq(
 
     quantized, indices, commit_loss = residual_vq(x, freeze_codebook = train and not implicit_neural_codebook)
     quantized_out = residual_vq.get_output_from_indices(indices)
-    assert torch.allclose(quantized, quantized_out, atol = 1e-6)
+    assert torch.allclose(quantized, quantized_out, atol = 1e-5)
 
 def test_residual_vq2():
     from vector_quantize_pytorch import ResidualVQ

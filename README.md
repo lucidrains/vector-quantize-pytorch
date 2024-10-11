@@ -122,6 +122,20 @@ quantized, indices, commit_loss = residual_vq(x)
 # (1, 1024, 256), (1, 1024, 4), (1, 4)
 ```
 
+## Gradient Computation
+
+VQ-VAEs are traditionally trained with the straight-through estimator (STE). During the backwards pass, the gradient flows _around_ the VQ layer rather than _through_ it. The <a href="https://arxiv.org/abs/2410.06424">rotation trick paper</a> proposes to transform the gradient _through_ the VQ layer so the relative angle and magnitude between the input vector and quantized output are encoded into the gradient. You can enable or disable this feature with ```rotation_trick=True/False``` in the ```VectorQuantize``` class.
+
+```python
+from vector_quantize_pytorch import VectorQuantize
+
+vq_layer = VectorQuantize(
+    dim = 256,
+    codebook_size = 256,
+    rotation_trick = True,   # Set to False to use the STE gradient estimator or True to use the rotation trick.
+)
+```
+
 ## Increasing codebook usage
 
 This repository will contain a few techniques from various papers to combat "dead" codebook entries, which is a common problem when using vector quantizers.
@@ -697,5 +711,16 @@ assert loss.item() >= 0
     year    = {2024},
     volume  = {abs/2401.14732},
     url     = {https://api.semanticscholar.org/CorpusID:267301189}
+}
+```
+
+```bibtex
+@article{Fifty2024Restructuring,
+    title   = {Restructuring Vector Quantization with the Rotation Trick},
+    author  = {Christopher Fifty, Ronald G. Junkins, Dennis Duan, Aniketh Iyengar, Jerry W. Liu, Ehsan Amid, Sebastian Thrun, Christopher Ré},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2410.06424},
+    url     = {https://api.semanticscholar.org/CorpusID:273229218}
 }
 ```
