@@ -100,7 +100,7 @@ class LFQ(Module):
         dim = None,
         codebook_size = None,
         entropy_loss_weight = 0.1,
-        commitment_loss_weight = 0.25,
+        commitment_loss_weight = 0.,
         diversity_gamma = 1.,
         straight_through_activation = nn.Identity(),
         num_codebooks = 1,
