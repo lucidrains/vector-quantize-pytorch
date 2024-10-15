@@ -103,6 +103,7 @@ class LFQ(Module):
         commitment_loss_weight = 0.,
         diversity_gamma = 1.,
         straight_through_activation = nn.Identity(),
+        scale_trick = False,                        # @cfifty Fifty et al. https://arxiv.org/abs/2410.06424
         num_codebooks = 1,
         keep_num_codebooks_dim = None,
         codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
@@ -159,6 +160,8 @@ class LFQ(Module):
         # straight through activation
 
         self.activation = straight_through_activation
+
+        self.scale_trick = scale_trick
 
         # whether to use BSQ (binary spherical quantization)
 
@@ -322,7 +325,12 @@ class LFQ(Module):
 
             if self.training:
                 x = self.activation(x)
-                x = x + (quantized - x).detach()
+
+                if self.scale_trick:
+                    x = x * (quantized / x).detach()
+                else:
+                    x = x + (quantized - x).detach()
+
             else:
                 x = quantized
 
