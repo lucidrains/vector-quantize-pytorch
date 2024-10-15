@@ -161,6 +161,7 @@ class LFQ(Module):
 
         self.activation = straight_through_activation
 
+        assert not (scale_trick and spherical)
         self.scale_trick = scale_trick
 
         # whether to use BSQ (binary spherical quantization)
