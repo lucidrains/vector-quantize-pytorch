@@ -38,9 +38,10 @@ class ResidualFSQ(Module):
     def __init__(
         self,
         *,
-        dim,
         levels: List[int],
         num_quantizers,
+        dim = None,
+        is_channel_first = False,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
@@ -48,12 +49,14 @@ class ResidualFSQ(Module):
     ):
         super().__init__()
         codebook_dim = len(levels)
+        dim = default(dim, codebook_dim)
 
         requires_projection = codebook_dim != dim
         self.project_in = nn.Linear(dim, codebook_dim) if requires_projection else nn.Identity()
         self.project_out = nn.Linear(codebook_dim, dim) if requires_projection else nn.Identity()
         self.has_projections = requires_projection
 
+        self.is_channel_first = is_channel_first
         self.num_quantizers = num_quantizers
 
         self.levels = levels
@@ -143,10 +146,18 @@ class ResidualFSQ(Module):
     ):
         num_quant, quant_dropout_multiple_of, device = self.num_quantizers, self.quantize_dropout_multiple_of, x.device
 
+        # handle channel first
+
+        if self.is_channel_first:
+            x = rearrange(x, 'b d ... -> b ... d')
+            x, ps = pack([x], 'b * d')
+
+        # maybe project in
+
         x = self.project_in(x)
 
         quantized_out = 0.
-        residual = first(self.layers).bound(x)
+        residual = x
 
         all_indices = []
 
@@ -175,6 +186,7 @@ class ResidualFSQ(Module):
                     continue
 
                 quantized, indices = layer(residual / scale)
+
                 quantized = quantized * scale
 
                 residual = residual - quantized.detach()
@@ -189,6 +201,17 @@ class ResidualFSQ(Module):
         # stack all indices
 
         all_indices = torch.stack(all_indices, dim = -1)
+
+        # channel first out
+
+        if self.is_channel_first:
+            quantized_out, = unpack(quantized_out, ps, 'b * d')
+            all_indices, = unpack(all_indices, ps, 'b * d')
+
+            quantized_out = rearrange(quantized_out, 'b ... d -> b d ...')
+            all_indices = rearrange(all_indices, 'b ... d -> b d ...')
+
+        # return
 
         ret = (quantized_out, all_indices)
 
