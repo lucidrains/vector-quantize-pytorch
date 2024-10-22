@@ -88,6 +88,11 @@ train_dataset = DataLoader(
 
 print("baseline")
 torch.random.manual_seed(seed)
-model = SimpleVQAutoEncoder(codebook_size=num_codes).to(device)
+
+model = SimpleVQAutoEncoder(
+    codebook_size=num_codes,
+    rotation_trick=True
+).to(device)
+
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
 train(model, train_dataset, train_iterations=train_iter)
