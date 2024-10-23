@@ -612,16 +612,6 @@ assert loss.item() >= 0
 ```
 
 ```bibtex
-@article{Liu2023BridgingDA,
-    title   = {Bridging Discrete and Backpropagation: Straight-Through and Beyond},
-    author  = {Liyuan Liu and Chengyu Dong and Xiaodong Liu and Bin Yu and Jianfeng Gao},
-    journal = {ArXiv},
-    year    = {2023},
-    volume  = {abs/2304.08612}
-}
-```
-
-```bibtex
 @inproceedings{huh2023improvedvqste,
     title   = {Straightening Out the Straight-Through Estimator: Overcoming Optimization Challenges in Vector Quantized Networks},
     author  = {Huh, Minyoung and Cheung, Brian and Agrawal, Pulkit and Isola, Phillip},

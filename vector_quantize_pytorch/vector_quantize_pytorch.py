@@ -103,7 +103,6 @@ def gumbel_sample(
     temperature = 1.,
     stochastic = False,
     straight_through = False,
-    reinmax = False,
     dim = -1,
     training = True
 ):
@@ -117,23 +116,11 @@ def gumbel_sample(
     ind = sampling_logits.argmax(dim = dim)
     one_hot = F.one_hot(ind, size).type(dtype)
 
-    assert not (reinmax and not straight_through), 'reinmax can only be turned on if using straight through gumbel softmax'
-
     if not straight_through or temperature <= 0. or not training:
         return ind, one_hot
 
-    # use reinmax for better second-order accuracy - https://arxiv.org/abs/2304.08612
-    # algorithm 2
-
-    if reinmax:
-        π0 = logits.softmax(dim = dim)
-        π1 = (one_hot + (logits / temperature).softmax(dim = dim)) / 2
-        π1 = ((log(π1) - logits).detach() + logits).softmax(dim = 1)
-        π2 = 2 * π1 - 0.5 * π0
-        one_hot = π2 - π2.detach() + one_hot
-    else:
-        π1 = (logits / temperature).softmax(dim = dim)
-        one_hot = one_hot + π1 - π1.detach()
+    π1 = (logits / temperature).softmax(dim = dim)
+    one_hot = one_hot + π1 - π1.detach()
 
     return ind, one_hot
 
@@ -828,7 +815,6 @@ class VectorQuantize(Module):
         sample_codebook_temp = 1.,
         straight_through = False,
         rotation_trick = True,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424 by @cfifty
-        reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = None,
         sync_affine_param = False,
         ema_update = True,
@@ -895,7 +881,6 @@ class VectorQuantize(Module):
         gumbel_sample_fn = partial(
             gumbel_sample,
             stochastic = stochastic_sample_codes,
-            reinmax = reinmax,
             straight_through = straight_through
         )
 
