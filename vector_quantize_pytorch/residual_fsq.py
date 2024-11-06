@@ -1,6 +1,6 @@
 import random
 from math import log2
-from functools import partial
+from functools import partial, cache
 
 from typing import List
 
@@ -9,6 +9,7 @@ from torch import nn
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 from torch.amp import autocast
+import torch.distributed as dist
 
 from vector_quantize_pytorch.finite_scalar_quantization import FSQ
 
@@ -29,6 +30,12 @@ def default(val, d):
 
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
+
+# distributed helpers
+
+@cache
+def is_distributed():
+    return dist.is_initialized() and dist.get_world_size() > 1
 
 # main class
 
@@ -167,7 +174,19 @@ class ResidualFSQ(Module):
         # also prepare null indices
 
         if should_quantize_dropout:
-            rand = random.Random(rand_quantize_dropout_fixed_seed) if exists(rand_quantize_dropout_fixed_seed) else random
+
+            if exists(rand_quantize_dropout_fixed_seed):
+                # seed is manually passed in
+                rand = random.Random(rand_quantize_dropout_fixed_seed)
+
+            elif is_distributed():
+                # in distributed environment, synchronize a random seed value if not given
+                t = torch.tensor(random.randrange(10_000), device = device)
+                dropout_seed = dist.all_reduce(t).item()
+                rand = random.Random(dropout_seed)
+
+            else:
+                rand = random
 
             rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
