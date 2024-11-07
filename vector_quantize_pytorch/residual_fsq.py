@@ -185,7 +185,7 @@ class ResidualFSQ(Module):
             # check if seed is manually passed in
 
             if not exists(rand_quantize_dropout_fixed_seed):
-                rand_quantize_dropout_fixed_seed = get_maybe_sync_seed()
+                rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
 
             rand = random.Random(rand_quantize_dropout_fixed_seed)
 
@@ -296,7 +296,7 @@ class GroupedResidualFSQ(Module):
         x,
         return_all_codes = False
     ):
-        shape, split_dim = x.shape, self.split_dim
+        shape, split_dim, device = x.shape, self.split_dim, x.device
         assert shape[split_dim] == self.dim
 
         # split the feature dimension into groups
@@ -305,7 +305,7 @@ class GroupedResidualFSQ(Module):
 
         forward_kwargs = dict(
             return_all_codes = return_all_codes,
-            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed()
+            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
         )
 
         # invoke residual vq on each group

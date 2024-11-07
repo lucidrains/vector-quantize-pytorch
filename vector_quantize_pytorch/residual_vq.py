@@ -36,8 +36,8 @@ def round_up_multiple(num, mult):
 def is_distributed():
     return dist.is_initialized() and dist.get_world_size() > 1
 
-def get_maybe_sync_seed(max_size = 10_000):
-    rand_int = torch.randint(0, max_size, ())
+def get_maybe_sync_seed(device, max_size = 10_000):
+    rand_int = torch.randint(0, max_size, (), device = device)
 
     if is_distributed():
         dist.all_reduce(rand_int)
@@ -296,7 +296,7 @@ class ResidualVQ(Module):
             # check if seed is manually passed in
 
             if not exists(rand_quantize_dropout_fixed_seed):
-                rand_quantize_dropout_fixed_seed = get_maybe_sync_seed()
+                rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
 
             rand = random.Random(rand_quantize_dropout_fixed_seed)
 
@@ -452,7 +452,7 @@ class GroupedResidualVQ(Module):
         freeze_codebook = False,
         mask = None,
     ):
-        shape, split_dim = x.shape, self.split_dim
+        shape, split_dim, device = x.shape, self.split_dim, x.device
         assert shape[split_dim] == self.dim
 
         # split the feature dimension into groups
@@ -468,7 +468,7 @@ class GroupedResidualVQ(Module):
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
             freeze_codebook = freeze_codebook,
-            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed()
+            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
         )
 
         # invoke residual vq on each group
