@@ -201,6 +201,24 @@ def test_rq():
     x = torch.randn(1, 1024, 512)
     indices = quantizer(x)
 
+def test_tiger():
+    from vector_quantize_pytorch import ResidualVQ
+
+    residual_vq = ResidualVQ(
+        dim = 2,
+        codebook_size = (5, 128, 256),
+    )
+
+    x = torch.randn(2, 2, 2)
+
+    residual_vq.train()
+
+    quantized, indices, commit_loss = residual_vq(x, freeze_codebook = True)
+
+    quantized_out = residual_vq.get_output_from_indices(indices)  # pass your indices into here, but the indices must come during .eval(), as during training some of the indices are dropped out (-1)
+
+    assert torch.allclose(quantized, quantized_out, atol = 1e-5)
+
 def test_fsq():
     from vector_quantize_pytorch import FSQ
 
