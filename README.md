@@ -100,6 +100,29 @@ quantized, indices, commit_loss = residual_vq(x)
 # (1, 1024, 256), (2, 1, 1024, 8), (2, 1, 8)
 ```
 
+
+<a href="https://arxiv.org/abs/2305.05065">This paper</a> out of Google Deepmind claims that residual vector quantization can induce hierarchical semantic ids for building a recommender system. In their scheme, they use increasing number of codes across depth for it to work. This repository supports that scheme as so
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualVQ
+
+residual_vq = ResidualVQ(
+    dim = 2,
+    codebook_size = (5, 128, 256), # from top most hierarchy to lowest, 5 codes, 128 codes, then 256 codes
+)
+
+x = torch.randn(2, 2, 2)
+
+residual_vq.train()
+
+quantized, indices, commit_loss = residual_vq(x, freeze_codebook = True)
+
+quantized_out = residual_vq.get_output_from_indices(indices)
+
+assert torch.allclose(quantized, quantized_out, atol = 1e-5)
+```
+
 ## Initialization
 
 The SoundStream paper proposes that the codebook should be initialized by the kmeans centroids of the first batch. You can easily turn on this feature with one flag `kmeans_init = True`, for either `VectorQuantize` or `ResidualVQ` class
@@ -712,5 +735,16 @@ assert loss.item() >= 0
     year    = {2024},
     volume  = {abs/2410.06424},
     url     = {https://api.semanticscholar.org/CorpusID:273229218}
+}
+```
+
+```bibtex
+@article{Rajput2023RecommenderSW,
+    title   = {Recommender Systems with Generative Retrieval},
+    author  = {Shashank Rajput and Nikhil Mehta and Anima Singh and Raghunandan H. Keshavan and Trung Hieu Vu and Lukasz Heldt and Lichan Hong and Yi Tay and Vinh Q. Tran and Jonah Samost and Maciej Kula and Ed H. Chi and Maheswaran Sathiamoorthy},
+    journal = {ArXiv},
+    year    = {2023},
+    volume  = {abs/2305.05065},
+    url     = {https://api.semanticscholar.org/CorpusID:258564854}
 }
 ```

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import List
 
 import random
 from math import ceil
@@ -27,6 +26,12 @@ def first(it):
 
 def default(val, d):
     return val if exists(val) else d
+
+def cast_tuple(t, length = 1):
+    return t if isinstance(t, tuple) else ((t,) * length)
+
+def unique(arr):
+    return list({*arr})
 
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
@@ -110,7 +115,8 @@ class ResidualVQ(Module):
         self,
         *,
         dim,
-        num_quantizers,
+        num_quantizers: int | None = None,
+        codebook_size: int | tuple[int, ...],
         codebook_dim = None,
         shared_codebook = False,
         heads = 1,
@@ -124,6 +130,8 @@ class ResidualVQ(Module):
     ):
         super().__init__()
         assert heads == 1, 'residual vq is not compatible with multi-headed codes'
+        assert exists(num_quantizers) or isinstance(codebook_size, tuple)
+
         codebook_dim = default(codebook_dim, dim)
         codebook_input_dim = codebook_dim * heads
 
@@ -131,8 +139,6 @@ class ResidualVQ(Module):
         self.project_in = nn.Linear(dim, codebook_input_dim) if requires_projection else nn.Identity()
         self.project_out = nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
         self.has_projections = requires_projection
-
-        self.num_quantizers = num_quantizers
 
         self.accept_image_fmap = accept_image_fmap
 
@@ -150,7 +156,21 @@ class ResidualVQ(Module):
                 manual_in_place_optimizer_update = True
             )
 
-        self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **vq_kwargs) for _ in range(num_quantizers)])
+        # take care of maybe different codebook sizes across depth, used in TIGER paper https://arxiv.org/abs/2305.05065
+
+        codebook_sizes = cast_tuple(codebook_size, num_quantizers)
+
+        num_quantizers = len(codebook_sizes)
+        self.num_quantizers = num_quantizers
+
+        assert len(codebook_sizes) == num_quantizers
+
+        self.codebook_sizes = codebook_sizes
+        self.uniform_codebook_size = len(unique(codebook_sizes)) == 1
+
+        # define vq across layers
+
+        self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_size = layer_codebook_size, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **vq_kwargs) for layer_codebook_size in codebook_sizes])
 
         assert all([not vq.has_projections for vq in self.layers])
 
@@ -167,6 +187,8 @@ class ResidualVQ(Module):
 
         if implicit_neural_codebook:
             self.mlps = ModuleList([MLP(dim = codebook_dim, l2norm_output = first(self.layers).use_cosine_sim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
+        else:
+            self.mlps = (None,) * (num_quantizers - 1)
 
         # sharing codebook logic
 
@@ -174,6 +196,8 @@ class ResidualVQ(Module):
 
         if not shared_codebook:
             return
+
+        assert self.uniform_codebook_size
 
         first_vq, *rest_vq = self.layers
         codebook = first_vq._codebook
@@ -192,8 +216,13 @@ class ResidualVQ(Module):
     @property
     def codebooks(self):
         codebooks = [layer._codebook.embed for layer in self.layers]
-        codebooks = torch.stack(codebooks, dim = 0)
-        codebooks = rearrange(codebooks, 'q 1 c d -> q c d')
+
+        codebooks = tuple(rearrange(codebook, '1 ... -> ...') for codebook in codebooks)
+
+        if not self.uniform_codebook_size:
+            return codebooks
+
+        codebooks = torch.stack(codebooks)
         return codebooks
 
     def get_codes_from_indices(self, indices):
@@ -216,13 +245,12 @@ class ResidualVQ(Module):
         mask = indices == -1.
         indices = indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
 
-        if not self.implicit_neural_codebook:
-            # gather all the codes
+        if not self.implicit_neural_codebook and self.uniform_codebook_size:
 
             all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
 
         else:
-            # else if using implicit neural codebook, codes will need to be derived layer by layer
+            # else if using implicit neural codebook, or non uniform codebook sizes, codes will need to be derived layer by layer
 
             code_transform_mlps = (None, *self.mlps)
 
@@ -261,7 +289,7 @@ class ResidualVQ(Module):
         self,
         x,
         mask = None,
-        indices: Tensor | List[Tensor] | None = None,
+        indices: Tensor | list[Tensor] | None = None,
         return_all_codes = False,
         sample_codebook_temp = None,
         freeze_codebook = False,
