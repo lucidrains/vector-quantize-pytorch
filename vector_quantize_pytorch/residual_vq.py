@@ -33,9 +33,16 @@ def round_up_multiple(num, mult):
 
 # distributed helpers
 
-@cache
 def is_distributed():
     return dist.is_initialized() and dist.get_world_size() > 1
+
+def get_maybe_sync_seed(max_size = 10_000):
+    rand_int = torch.randint(0, max_size, ())
+
+    if is_distributed():
+        dist.all_reduce(rand_int)
+
+    return rand_int.item()
 
 # the mlp for generating the neural implicit codebook
 # from Huijben et al. https://arxiv.org/abs/2401.14732
@@ -286,18 +293,13 @@ class ResidualVQ(Module):
 
         if should_quantize_dropout:
 
-            if exists(rand_quantize_dropout_fixed_seed):
-                # seed is manually passed in
-                rand = random.Random(rand_quantize_dropout_fixed_seed)
+            # check if seed is manually passed in
 
-            elif is_distributed():
-                # in distributed environment, synchronize a random seed value if not given
-                t = torch.tensor(random.randrange(10_000), device = device)
-                dropout_seed = dist.all_reduce(t).item()
-                rand = random.Random(dropout_seed)
+            if not exists(rand_quantize_dropout_fixed_seed):
+                rand_quantize_dropout_fixed_seed = get_maybe_sync_seed()
 
-            else:
-                rand = random
+            rand = random.Random(rand_quantize_dropout_fixed_seed)
+
 
             rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
@@ -466,7 +468,7 @@ class GroupedResidualVQ(Module):
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
             freeze_codebook = freeze_codebook,
-            rand_quantize_dropout_fixed_seed = random.randint(0, int(1e7))
+            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed()
         )
 
         # invoke residual vq on each group
