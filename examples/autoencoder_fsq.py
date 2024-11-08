@@ -9,7 +9,7 @@ import torch.nn as nn
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-from vector_quantize_pytorch import FSQ
+from vector_quantize_pytorch import FSQ, Sequential
 
 
 lr = 3e-4
@@ -20,36 +20,22 @@ seed = 1234
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-class SimpleFSQAutoEncoder(nn.Module):
-    def __init__(self, levels: list[int]):
-        super().__init__()
-        self.layers = nn.ModuleList(
-            [
-                nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.GELU(),
-                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Conv2d(32, len(levels), kernel_size=1),
-                FSQ(levels),
-                nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-                nn.GELU(),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
-            ]
-        )
-        return
-
-    def forward(self, x):
-        for layer in self.layers:
-            if isinstance(layer, FSQ):
-                x, indices = layer(x)
-            else:
-                x = layer(x)
-
-        return x.clamp(-1, 1), indices
+def SimpleFSQAutoEncoder(levels: list[int]):
+    return Sequential(
+        nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        nn.GELU(),
+        nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        nn.Conv2d(32, len(levels), kernel_size=1),
+        FSQ(levels),
+        nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
+        nn.Upsample(scale_factor=2, mode="nearest"),
+        nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+        nn.GELU(),
+        nn.Upsample(scale_factor=2, mode="nearest"),
+        nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+    )
 
 
 def train(model, train_loader, train_iterations=1000):
@@ -67,6 +53,8 @@ def train(model, train_loader, train_iterations=1000):
         opt.zero_grad()
         x, _ = next(iterate_dataset(train_loader))
         out, indices = model(x)
+        out = out.clamp(-1., 1.)
+
         rec_loss = (out - x).abs().mean()
         rec_loss.backward()
 
@@ -75,7 +63,6 @@ def train(model, train_loader, train_iterations=1000):
             f"rec loss: {rec_loss.item():.3f} | "
             + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
         )
-    return
 
 
 transform = transforms.Compose(

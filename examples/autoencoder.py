@@ -8,45 +8,29 @@ import torch.nn as nn
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-from vector_quantize_pytorch import VectorQuantize
-
+from vector_quantize_pytorch import VectorQuantize, Sequential
 
 lr = 3e-4
 train_iter = 1000
 num_codes = 256
 seed = 1234
+rotation_trick = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
-class SimpleVQAutoEncoder(nn.Module):
-    def __init__(self, **vq_kwargs):
-        super().__init__()
-        self.layers = nn.ModuleList(
-            [
-                nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.GELU(),
-                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                VectorQuantize(dim=32, accept_image_fmap = True, **vq_kwargs),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-                nn.GELU(),
-                nn.Upsample(scale_factor=2, mode="nearest"),
-                nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
-            ]
-        )
-        return
-
-    def forward(self, x):
-        for layer in self.layers:
-            if isinstance(layer, VectorQuantize):
-                x, indices, commit_loss = layer(x)
-            else:
-                x = layer(x)
-
-        return x.clamp(-1, 1), indices, commit_loss
-
+def SimpleVQAutoEncoder(**vq_kwargs):
+    return Sequential(
+        nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        nn.GELU(),
+        nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        VectorQuantize(dim=32, accept_image_fmap = True, **vq_kwargs),
+        nn.Upsample(scale_factor=2, mode="nearest"),
+        nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+        nn.GELU(),
+        nn.Upsample(scale_factor=2, mode="nearest"),
+        nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+    )
 
 def train(model, train_loader, train_iterations=1000, alpha=10):
     def iterate_dataset(data_loader):
@@ -62,7 +46,10 @@ def train(model, train_loader, train_iterations=1000, alpha=10):
     for _ in (pbar := trange(train_iterations)):
         opt.zero_grad()
         x, _ = next(iterate_dataset(train_loader))
+
         out, indices, cmt_loss = model(x)
+        out = out.clamp(-1., 1.)
+
         rec_loss = (out - x).abs().mean()
         (rec_loss + alpha * cmt_loss).backward()
 
@@ -72,8 +59,6 @@ def train(model, train_loader, train_iterations=1000, alpha=10):
             + f"cmt loss: {cmt_loss.item():.3f} | "
             + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
         )
-    return
-
 
 transform = transforms.Compose(
     [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
@@ -91,7 +76,7 @@ torch.random.manual_seed(seed)
 
 model = SimpleVQAutoEncoder(
     codebook_size=num_codes,
-    rotation_trick=True
+    rotation_trick=rotation_trick
 ).to(device)
 
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
