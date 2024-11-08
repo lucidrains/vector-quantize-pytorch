@@ -305,7 +305,7 @@ class GroupedResidualFSQ(Module):
 
         forward_kwargs = dict(
             return_all_codes = return_all_codes,
-            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
+            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device) if self.training else None
         )
 
         # invoke residual vq on each group

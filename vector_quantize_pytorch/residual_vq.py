@@ -328,7 +328,6 @@ class ResidualVQ(Module):
 
             rand = random.Random(rand_quantize_dropout_fixed_seed)
 
-
             rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
             if quant_dropout_multiple_of != 1:
@@ -496,7 +495,7 @@ class GroupedResidualVQ(Module):
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
             freeze_codebook = freeze_codebook,
-            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
+            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device) if self.training else None
         )
 
         # invoke residual vq on each group
