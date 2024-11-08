@@ -36,8 +36,8 @@ def round_up_multiple(num, mult):
 def is_distributed():
     return dist.is_initialized() and dist.get_world_size() > 1
 
-def get_maybe_sync_seed(max_size = 10_000):
-    rand_int = torch.randint(0, max_size, ())
+def get_maybe_sync_seed(device, max_size = 10_000):
+    rand_int = torch.randint(0, max_size, (), device = device)
 
     if is_distributed():
         dist.all_reduce(rand_int)
