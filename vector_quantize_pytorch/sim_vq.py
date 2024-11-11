@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Callable
 
 import torch
@@ -38,6 +39,7 @@ class SimVQ(Module):
         self,
         dim,
         codebook_size,
+        codebook_transform: Module | None = None,
         init_fn: Callable = identity,
         accept_image_fmap = False,
         rotation_trick = True,  # works even better with rotation trick turned on, with no straight through and the commit loss from input to quantize
@@ -51,7 +53,11 @@ class SimVQ(Module):
 
         # the codebook is actually implicit from a linear layer from frozen gaussian or uniform
 
-        self.codebook_to_codes = nn.Linear(dim, dim, bias = False)
+        if not exists(codebook_transform):
+            codebook_transform = nn.Linear(dim, dim, bias = False)
+
+        self.codebook_to_codes = codebook_transform
+
         self.register_buffer('codebook', codebook)
 
 
@@ -114,6 +120,11 @@ if __name__ == '__main__':
 
     sim_vq = SimVQ(
         dim = 512,
+        codebook_transform = nn.Sequential(
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512)
+        ),
         codebook_size = 1024,
         accept_image_fmap = True
     )
