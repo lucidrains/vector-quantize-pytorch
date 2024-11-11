@@ -76,7 +76,6 @@ train_dataset = DataLoader(
     shuffle=True,
 )
 
-print("baseline")
 torch.random.manual_seed(seed)
 model = SimpleFSQAutoEncoder(levels).to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
