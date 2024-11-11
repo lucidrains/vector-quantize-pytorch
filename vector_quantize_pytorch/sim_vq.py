@@ -56,7 +56,7 @@ class SimVQ(Module):
         if not exists(codebook_transform):
             codebook_transform = nn.Linear(dim, dim, bias = False)
 
-        self.codebook_to_codes = codebook_transform
+        self.code_transform = codebook_transform
 
         self.register_buffer('frozen_codebook', codebook)
 
@@ -72,7 +72,7 @@ class SimVQ(Module):
 
     @property
     def codebook(self):
-        return self.codebook_to_codes(self.frozen_codebook)
+        return self.code_transform(self.frozen_codebook)
 
     def indices_to_codes(
         self,
@@ -80,7 +80,8 @@ class SimVQ(Module):
     ):
         implicit_codebook = self.codebook
 
-        quantized = get_at('[c] d, b ... -> b ... d', implicit_codebook, indices)
+        frozen_codes = get_at('[c] d, b ... -> b ... d', self.frozen_codebook, indices)
+        quantized = self.code_transform(frozen_codes)
 
         if self.accept_image_fmap:
             quantized = rearrange(quantized, 'b ... d -> b d ...')
