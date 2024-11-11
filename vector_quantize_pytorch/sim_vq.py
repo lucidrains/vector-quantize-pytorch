@@ -72,7 +72,7 @@ class SimVQ(Module):
 
         commit_loss = (F.pairwise_distance(x, quantized) ** 2).mean()
 
-        # quantized = (quantized - x).detach() + x
+        quantized = (quantized - x).detach() + x
 
         if self.accept_image_fmap:
             quantized = inverse_pack(quantized)
