@@ -70,7 +70,10 @@ class SimVQ(Module):
 
         # commit loss
 
-        commit_loss = (F.pairwise_distance(x, quantized) ** 2).mean()
+        commit_loss = (
+            0.25 * F.mse_loss(x, quantized.detach()) +
+            F.mse_loss(x.detach(), quantized)
+        )
 
         quantized = (quantized - x).detach() + x
 
