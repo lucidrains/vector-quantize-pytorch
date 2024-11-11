@@ -250,21 +250,21 @@ def efficient_rotation_trick_transform(u, q, e):
         2 * (e @ rearrange(u, 'b d -> b d 1').detach() @ rearrange(q, 'b d -> b 1 d').detach())
     )
 
-def rotate_from_to(src, tgt):
+def rotate_to(src, tgt):
     # rotation trick STE (https://arxiv.org/abs/2410.06424) to get gradients through VQ layer.
-    tgt, inverse = pack_one(tgt, '* d')
-    src, _ = pack_one(src, '* d')
+    src, inverse = pack_one(src, '* d')
+    tgt, _ = pack_one(tgt, '* d')
 
-    norm_tgt = tgt.norm(dim = -1, keepdim = True)
     norm_src = src.norm(dim = -1, keepdim = True)
+    norm_tgt = tgt.norm(dim = -1, keepdim = True)
 
-    rotated_src = efficient_rotation_trick_transform(
-        safe_div(tgt, norm_tgt),
+    rotated_tgt = efficient_rotation_trick_transform(
         safe_div(src, norm_src),
-        tgt
+        safe_div(tgt, norm_tgt),
+        src
     ).squeeze()
 
-    rotated = rotated_src * safe_div(norm_src, norm_tgt).detach()
+    rotated = rotated_tgt * safe_div(norm_tgt, norm_src).detach()
 
     return inverse(rotated)
 
@@ -1118,7 +1118,7 @@ class VectorQuantize(Module):
             commit_quantize = maybe_detach(quantize)
 
             if self.rotation_trick:
-                quantize = rotate_from_to(quantize, x)
+                quantize = rotate_to(x, quantize)
             else:
                 # standard STE to get gradients through VQ layer.
                 quantize = x + (quantize - x).detach()

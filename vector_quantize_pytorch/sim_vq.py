@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from einx import get_at
 from einops import rearrange, pack, unpack
 
-from vector_quantize_pytorch.vector_quantize_pytorch import rotate_from_to
+from vector_quantize_pytorch.vector_quantize_pytorch import rotate_to
 
 # helper functions
 
@@ -94,7 +94,7 @@ class SimVQ(Module):
 
         if self.rotation_trick:
             # rotation trick from @cfifty
-            quantized = rotate_from_to(quantized, x)
+            quantized = rotate_to(x, quantized)
         else:
 
             commit_loss = (
