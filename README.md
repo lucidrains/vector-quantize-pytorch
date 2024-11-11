@@ -714,3 +714,12 @@ assert loss.item() >= 0
     url     = {https://api.semanticscholar.org/CorpusID:273229218}
 }
 ```
+
+```bibtex
+@inproceedings{Zhu2024AddressingRC,
+    title   = {Addressing Representation Collapse in Vector Quantized Models with One Linear Layer},
+    author  = {Yongxin Zhu and Bocheng Li and Yifei Xin and Linli Xu},
+    year    = {2024},
+    url     = {https://api.semanticscholar.org/CorpusID:273812459}
+}
+```

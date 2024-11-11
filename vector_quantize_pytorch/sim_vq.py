@@ -6,7 +6,9 @@ from torch.nn import Module
 import torch.nn.functional as F
 
 from einx import get_at
-from einops import einsum, rearrange, repeat, reduce, pack, unpack
+from einops import rearrange, pack, unpack
+
+from vector_quantize_pytorch.vector_quantize_pytorch import rotate_from_to
 
 # helper functions
 
@@ -37,7 +39,9 @@ class SimVQ(Module):
         dim,
         codebook_size,
         init_fn: Callable = identity,
-        accept_image_fmap = False
+        accept_image_fmap = False,
+        rotation_trick = True,  # works even better with rotation trick turned on, with no asymmetric commit loss or straight through
+        commit_loss_input_to_quantize_weight = 0.25,
     ):
         super().__init__()
         self.accept_image_fmap = accept_image_fmap
@@ -49,6 +53,17 @@ class SimVQ(Module):
 
         self.codebook_to_codes = nn.Linear(dim, dim, bias = False)
         self.register_buffer('codebook', codebook)
+
+
+        # whether to use rotation trick from Fifty et al. 
+        # https://arxiv.org/abs/2410.06424
+
+        self.rotation_trick = rotation_trick
+        self.register_buffer('zero', torch.tensor(0.), persistent = False)
+
+        # commit loss weighting - weighing input to quantize a bit less is crucial for it to work
+
+        self.commit_loss_input_to_quantize_weight = commit_loss_input_to_quantize_weight
 
     def forward(
         self,
@@ -68,14 +83,21 @@ class SimVQ(Module):
 
         quantized = get_at('[c] d, b n -> b n d', implicit_codebook, indices)
 
-        # commit loss
+        if self.rotation_trick:
+            # rotation trick from @cfifty
 
-        commit_loss = (
-            0.25 * F.mse_loss(x, quantized.detach()) +
-            F.mse_loss(x.detach(), quantized)
-        )
+            quantized = rotate_from_to(quantized, x)
 
-        quantized = (quantized - x).detach() + x
+            commit_loss = self.zero
+        else:
+            # commit loss and straight through, as was done in the paper
+
+            commit_loss = (
+                F.mse_loss(x, quantized.detach()) * self.commit_loss_input_to_quantize_weight +
+                F.mse_loss(x.detach(), quantized)
+            )
+
+            quantized = (quantized - x).detach() + x
 
         if self.accept_image_fmap:
             quantized = inverse_pack(quantized)

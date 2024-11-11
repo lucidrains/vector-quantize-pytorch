@@ -22,11 +22,11 @@ def SimVQAutoEncoder(**vq_kwargs):
         nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
         nn.MaxPool2d(kernel_size=2, stride=2),
         nn.GELU(),
-        nn.Conv2d(16, 64, kernel_size=3, stride=1, padding=1),
+        nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
         nn.MaxPool2d(kernel_size=2, stride=2),
-        SimVQ(dim=64, accept_image_fmap = True, **vq_kwargs),
+        SimVQ(dim=32, accept_image_fmap = True, **vq_kwargs),
         nn.Upsample(scale_factor=2, mode="nearest"),
-        nn.Conv2d(64, 16, kernel_size=3, stride=1, padding=1),
+        nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
         nn.GELU(),
         nn.Upsample(scale_factor=2, mode="nearest"),
         nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
@@ -73,11 +73,11 @@ train_dataset = DataLoader(
     shuffle=True,
 )
 
-print("baseline")
 torch.random.manual_seed(seed)
 
 model = SimVQAutoEncoder(
-    codebook_size=num_codes,
+    codebook_size = num_codes,
+    rotation_trick = rotation_trick
 ).to(device)
 
 opt = torch.optim.AdamW(model.parameters(), lr=lr)

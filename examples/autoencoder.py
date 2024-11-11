@@ -71,7 +71,6 @@ train_dataset = DataLoader(
     shuffle=True,
 )
 
-print("baseline")
 torch.random.manual_seed(seed)
 
 model = SimpleVQAutoEncoder(
