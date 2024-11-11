@@ -40,8 +40,8 @@ class SimVQ(Module):
         codebook_size,
         init_fn: Callable = identity,
         accept_image_fmap = False,
-        rotation_trick = True,  # works even better with rotation trick turned on, with no asymmetric commit loss or straight through
-        commit_loss_input_to_quantize_weight = 0.25,
+        rotation_trick = True,  # works even better with rotation trick turned on, with no straight through and the commit loss from input to quantize
+        input_to_quantize_commit_loss_weight = 0.25,
     ):
         super().__init__()
         self.accept_image_fmap = accept_image_fmap
@@ -59,11 +59,10 @@ class SimVQ(Module):
         # https://arxiv.org/abs/2410.06424
 
         self.rotation_trick = rotation_trick
-        self.register_buffer('zero', torch.tensor(0.), persistent = False)
 
         # commit loss weighting - weighing input to quantize a bit less is crucial for it to work
 
-        self.commit_loss_input_to_quantize_weight = commit_loss_input_to_quantize_weight
+        self.input_to_quantize_commit_loss_weight = input_to_quantize_commit_loss_weight
 
     def forward(
         self,
@@ -83,18 +82,18 @@ class SimVQ(Module):
 
         quantized = get_at('[c] d, b n -> b n d', implicit_codebook, indices)
 
+        # commit loss and straight through, as was done in the paper
+
+        commit_loss = F.mse_loss(x.detach(), quantized)
+
         if self.rotation_trick:
             # rotation trick from @cfifty
-
             quantized = rotate_from_to(quantized, x)
-
-            commit_loss = self.zero
         else:
-            # commit loss and straight through, as was done in the paper
 
             commit_loss = (
-                F.mse_loss(x, quantized.detach()) * self.commit_loss_input_to_quantize_weight +
-                F.mse_loss(x.detach(), quantized)
+                commit_loss + 
+                F.mse_loss(x, quantized.detach()) * self.input_to_quantize_commit_loss_weight
             )
 
             quantized = (quantized - x).detach() + x
