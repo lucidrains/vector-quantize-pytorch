@@ -14,7 +14,10 @@ lr = 3e-4
 train_iter = 10000
 num_codes = 256
 seed = 1234
-rotation_trick = True
+
+rotation_trick = True # rotation trick instead ot straight-through
+use_mlp = True        # use a one layer mlp with relu instead of linear
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 def SimVQAutoEncoder(**vq_kwargs):
@@ -77,7 +80,12 @@ torch.random.manual_seed(seed)
 
 model = SimVQAutoEncoder(
     codebook_size = num_codes,
-    rotation_trick = rotation_trick
+    rotation_trick = rotation_trick,
+    codebook_transform = nn.Sequential(
+        nn.Linear(32, 128),
+        nn.ReLU(),
+        nn.Linear(128, 32),
+    ) if use_mlp else None
 ).to(device)
 
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
