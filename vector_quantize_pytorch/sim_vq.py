@@ -58,7 +58,7 @@ class SimVQ(Module):
 
         self.codebook_to_codes = codebook_transform
 
-        self.register_buffer('codebook', codebook)
+        self.register_buffer('frozen_codebook', codebook)
 
 
         # whether to use rotation trick from Fifty et al. 
@@ -70,6 +70,23 @@ class SimVQ(Module):
 
         self.input_to_quantize_commit_loss_weight = input_to_quantize_commit_loss_weight
 
+    @property
+    def codebook(self):
+        return self.codebook_to_codes(self.frozen_codebook)
+
+    def indices_to_codes(
+        self,
+        indices
+    ):
+        implicit_codebook = self.codebook
+
+        quantized = get_at('[c] d, b ... -> b ... d', implicit_codebook, indices)
+
+        if self.accept_image_fmap:
+            quantized = rearrange(quantized, 'b ... d -> b d ...')
+
+        return quantized
+
     def forward(
         self,
         x
@@ -78,7 +95,7 @@ class SimVQ(Module):
             x = rearrange(x, 'b d h w -> b h w d')
             x, inverse_pack = pack_one(x, 'b * d')
 
-        implicit_codebook = self.codebook_to_codes(self.codebook)
+        implicit_codebook = self.codebook
 
         with torch.no_grad():
             dist = torch.cdist(x, implicit_codebook)

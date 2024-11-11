@@ -362,3 +362,17 @@ def test_latent_q():
 
     assert image_feats.shape == quantized.shape
     assert (quantized == quantizer.indices_to_codes(indices)).all()
+
+def test_sim_vq():
+    from vector_quantize_pytorch import SimVQ
+
+    sim_vq = SimVQ(
+        dim = 512,
+        codebook_size = 1024,
+    )
+
+    x = torch.randn(1, 1024, 512)
+    quantized, indices, commit_loss = sim_vq(x)
+
+    assert x.shape == quantized.shape
+    assert torch.allclose(quantized, sim_vq.indices_to_codes(indices), atol = 1e-6)
