@@ -44,17 +44,21 @@ class SimVQ(Module):
         accept_image_fmap = False,
         rotation_trick = True,  # works even better with rotation trick turned on, with no straight through and the commit loss from input to quantize
         input_to_quantize_commit_loss_weight = 0.25,
+        frozen_codebook_dim = None # frozen codebook dim could have different dimensions than projection
     ):
         super().__init__()
+        self.codebook_size = codebook_size
         self.accept_image_fmap = accept_image_fmap
 
-        codebook = torch.randn(codebook_size, dim) * (dim ** -0.5)
+        frozen_codebook_dim = default(frozen_codebook_dim, dim)
+        codebook = torch.randn(codebook_size, frozen_codebook_dim) * (frozen_codebook_dim ** -0.5)
         codebook = init_fn(codebook)
 
         # the codebook is actually implicit from a linear layer from frozen gaussian or uniform
 
+
         if not exists(codebook_transform):
-            codebook_transform = nn.Linear(dim, dim, bias = False)
+            codebook_transform = nn.Linear(frozen_codebook_dim, dim, bias = False)
 
         self.code_transform = codebook_transform
 

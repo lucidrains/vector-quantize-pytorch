@@ -156,7 +156,7 @@ class ResidualVQ(Module):
                 manual_in_place_optimizer_update = True
             )
 
-        # take care of maybe different codebook sizes across depth, used in TIGER paper https://arxiv.org/abs/2305.05065
+        # take care of maybe different codebook sizes across depth
 
         codebook_sizes = cast_tuple(codebook_size, num_quantizers)
 

@@ -376,3 +376,20 @@ def test_sim_vq():
 
     assert x.shape == quantized.shape
     assert torch.allclose(quantized, sim_vq.indices_to_codes(indices), atol = 1e-6)
+
+def test_residual_sim_vq():
+
+    from vector_quantize_pytorch import ResidualSimVQ
+
+    residual_sim_vq = ResidualSimVQ(
+        dim = 512,
+        num_quantizers = 4,
+        codebook_size = 1024,
+        accept_image_fmap = True
+    )
+
+    x = torch.randn(1, 512, 32, 32)
+    quantized, indices, commit_loss = residual_sim_vq(x)
+
+    assert x.shape == quantized.shape
+    assert torch.allclose(quantized, residual_sim_vq.get_output_from_indices(indices), atol = 1e-5)
