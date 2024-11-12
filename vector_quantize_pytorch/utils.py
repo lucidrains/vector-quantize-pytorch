@@ -22,6 +22,7 @@ QUANTIZE_KLASSES = (
     FSQ,
     LFQ,
     SimVQ,
+    ResidualSimVQ,
     ResidualLFQ,
     GroupedResidualLFQ,
     ResidualFSQ,
