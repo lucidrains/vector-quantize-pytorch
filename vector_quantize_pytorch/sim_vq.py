@@ -44,6 +44,7 @@ class SimVQ(Module):
         accept_image_fmap = False,
         rotation_trick = True,  # works even better with rotation trick turned on, with no straight through and the commit loss from input to quantize
         input_to_quantize_commit_loss_weight = 0.25,
+        commitment_weight = 1.,
         frozen_codebook_dim = None # frozen codebook dim could have different dimensions than projection
     ):
         super().__init__()
@@ -73,6 +74,10 @@ class SimVQ(Module):
         # commit loss weighting - weighing input to quantize a bit less is crucial for it to work
 
         self.input_to_quantize_commit_loss_weight = input_to_quantize_commit_loss_weight
+
+        # total commitment loss weight
+
+        self.commitment_weight = commitment_weight
 
     @property
     def codebook(self):
@@ -132,7 +137,7 @@ class SimVQ(Module):
 
             indices = inverse_pack(indices, 'b *')
 
-        return quantized, indices, commit_loss
+        return quantized, indices, commit_loss * self.commitment_weight
 
 # main
 
