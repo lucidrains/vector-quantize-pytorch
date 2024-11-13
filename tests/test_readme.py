@@ -385,7 +385,7 @@ def test_residual_sim_vq():
         dim = 512,
         num_quantizers = 4,
         codebook_size = 1024,
-        accept_image_fmap = True
+        channel_first = True
     )
 
     x = torch.randn(1, 512, 32, 32)

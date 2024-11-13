@@ -288,7 +288,8 @@ from vector_quantize_pytorch import SimVQ
 
 sim_vq = SimVQ(
     dim = 512,
-    codebook_size = 1024
+    codebook_size = 1024,
+    rotation_trick = True  # use rotation trick from Fifty et al.
 )
 
 x = torch.randn(1, 1024, 512)
@@ -307,7 +308,8 @@ from vector_quantize_pytorch import ResidualSimVQ
 residual_sim_vq = ResidualSimVQ(
     dim = 512,
     num_quantizers = 4,
-    codebook_size = 1024
+    codebook_size = 1024,
+    rotation_trick = True  # use rotation trick from Fifty et al.
 )
 
 x = torch.randn(1, 1024, 512)
@@ -601,11 +603,11 @@ assert loss.item() >= 0
 
 ```bibtex
 @inproceedings{lee2022autoregressive,
-    title={Autoregressive Image Generation using Residual Quantization},
-    author={Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
-    booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-    pages={11523--11532},
-    year={2022}
+    title   = {Autoregressive Image Generation using Residual Quantization},
+    author  = {Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+    pages   = {11523--11532},
+    year    = {2022}
 }
 ```
 

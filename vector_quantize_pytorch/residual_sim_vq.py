@@ -58,20 +58,20 @@ class ResidualSimVQ(Module):
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
-        accept_image_fmap = False,
+        channel_first = False,
         rotation_trick = True, # rotation trick from @cfifty, on top of sim vq
         **sim_vq_kwargs
     ):
         super().__init__()
         assert heads == 1, 'residual vq is not compatible with multi-headed codes'
 
-        self.accept_image_fmap = accept_image_fmap
+        self.channel_first = channel_first
 
         self.num_quantizers = num_quantizers
 
         # define sim vq across layers
 
-        self.layers = ModuleList([SimVQ(dim = dim, codebook_size = codebook_size, rotation_trick = rotation_trick, accept_image_fmap = accept_image_fmap, **sim_vq_kwargs) for _ in range(num_quantizers)])
+        self.layers = ModuleList([SimVQ(dim = dim, codebook_size = codebook_size, rotation_trick = rotation_trick, channel_first = channel_first, **sim_vq_kwargs) for _ in range(num_quantizers)])
 
         # quantize dropout
 
@@ -100,7 +100,7 @@ class ResidualSimVQ(Module):
 
         batch, quantize_dim = indices.shape[0], indices.shape[-1]
 
-        # may also receive indices in the shape of 'b h w q' (accept_image_fmap)
+        # may also receive indices in the shape of 'b h w q' (images)
 
         indices, inverse = pack_one(indices, 'b * q')
 
@@ -122,11 +122,11 @@ class ResidualSimVQ(Module):
 
         all_codes = all_codes.masked_fill(rearrange(mask, 'b n q -> q b n 1'), 0.)
 
-        # if (accept_image_fmap = True) then return shape (quantize, batch, height, width, dimension)
+        # if (channel_first = True) then return shape (quantize, batch, height, width, dimension)
 
         all_codes = inverse(all_codes, 'q b * d')
 
-        if self.accept_image_fmap:
+        if self.channel_first:
             all_codes = rearrange(all_codes, 'q b ... d -> q b d ...')
 
         return all_codes
@@ -139,22 +139,16 @@ class ResidualSimVQ(Module):
     def forward(
         self,
         x,
-        indices: Tensor | list[Tensor] | None = None,
         return_all_codes = False,
         rand_quantize_dropout_fixed_seed = None
     ):
-        num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
-
-        assert not (self.accept_image_fmap and exists(indices))
+        num_quant, quant_dropout_multiple_of, device = self.num_quantizers, self.quantize_dropout_multiple_of, x.device
 
         quantized_out = 0.
         residual = x
 
         all_losses = []
         all_indices = []
-
-        if isinstance(indices, list):
-            indices = torch.stack(indices)
 
         should_quantize_dropout = self.training and self.quantize_dropout and not return_loss
 
@@ -175,7 +169,7 @@ class ResidualSimVQ(Module):
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
-            null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.accept_image_fmap else tuple(x.shape[:2])
+            null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.channel_first else tuple(x.shape[:2])
             null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
             null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
 
