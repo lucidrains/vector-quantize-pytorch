@@ -27,7 +27,7 @@ def SimVQAutoEncoder(**vq_kwargs):
         nn.GELU(),
         nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
         nn.MaxPool2d(kernel_size=2, stride=2),
-        SimVQ(dim=32, accept_image_fmap = True, **vq_kwargs),
+        SimVQ(dim=32, channel_first = True, **vq_kwargs),
         nn.Upsample(scale_factor=2, mode="nearest"),
         nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
         nn.GELU(),
