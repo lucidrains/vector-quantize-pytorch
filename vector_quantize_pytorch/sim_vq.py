@@ -41,7 +41,7 @@ class SimVQ(Module):
         codebook_size,
         codebook_transform: Module | None = None,
         init_fn: Callable = identity,
-        accept_image_fmap = False,
+        channel_first = False,
         rotation_trick = True,  # works even better with rotation trick turned on, with no straight through and the commit loss from input to quantize
         input_to_quantize_commit_loss_weight = 0.25,
         commitment_weight = 1.,
@@ -49,7 +49,7 @@ class SimVQ(Module):
     ):
         super().__init__()
         self.codebook_size = codebook_size
-        self.accept_image_fmap = accept_image_fmap
+        self.channel_first = channel_first
 
         frozen_codebook_dim = default(frozen_codebook_dim, dim)
         codebook = torch.randn(codebook_size, frozen_codebook_dim) * (frozen_codebook_dim ** -0.5)
@@ -92,7 +92,7 @@ class SimVQ(Module):
         frozen_codes = get_at('[c] d, b ... -> b ... d', self.frozen_codebook, indices)
         quantized = self.code_transform(frozen_codes)
 
-        if self.accept_image_fmap:
+        if self.channel_first:
             quantized = rearrange(quantized, 'b ... d -> b d ...')
 
         return quantized
@@ -101,9 +101,10 @@ class SimVQ(Module):
         self,
         x
     ):
-        if self.accept_image_fmap:
-            x = rearrange(x, 'b d h w -> b h w d')
-            x, inverse_pack = pack_one(x, 'b * d')
+        if self.channel_first:
+            x = rearrange(x, 'b d ... -> b ... d')
+
+        x, inverse_pack = pack_one(x, 'b * d')
 
         implicit_codebook = self.codebook
 
@@ -131,11 +132,11 @@ class SimVQ(Module):
 
             quantized = (quantized - x).detach() + x
 
-        if self.accept_image_fmap:
-            quantized = inverse_pack(quantized)
-            quantized = rearrange(quantized, 'b h w d-> b d h w')
+        quantized = inverse_pack(quantized)
+        indices = inverse_pack(indices, 'b *')
 
-            indices = inverse_pack(indices, 'b *')
+        if self.channel_first:
+            quantized = rearrange(quantized, 'b ... d-> b d ...')
 
         return quantized, indices, commit_loss * self.commitment_weight
 
@@ -153,7 +154,7 @@ if __name__ == '__main__':
             nn.Linear(1024, 512)
         ),
         codebook_size = 1024,
-        accept_image_fmap = True
+        channel_first = True
     )
 
     quantized, indices, commit_loss = sim_vq(x)
