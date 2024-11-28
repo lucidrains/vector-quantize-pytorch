@@ -335,26 +335,34 @@ class LFQ(Module):
 
                 codebook = self.maybe_l2norm(codebook)
 
-                # the same as euclidean distance up to a constant
-                distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
-
-                prob = (-distance * inv_temperature).softmax(dim = -1)
-
-                # account for mask
-
-                if exists(mask):
-                    prob = prob[mask]
-                else:
-                    prob = rearrange(prob, 'b n ... -> (b n) ...')
-
                 # whether to only use a fraction of probs, for reducing memory
 
                 if self.frac_per_sample_entropy < 1.:
-                    num_tokens = prob.shape[0]
+                    # account for mask
+                    if exists(mask):
+                        original_input = original_input[mask]
+                    original_input = rearrange(original_input, 'b n ... -> (b n) ...')
+
+                    num_tokens = original_input.size(0)
                     num_sampled_tokens = int(num_tokens * self.frac_per_sample_entropy)
                     rand_mask = torch.randn(num_tokens).argsort(dim = -1) < num_sampled_tokens
-                    per_sample_probs = prob[rand_mask]
+
+                    sampled_input = original_input[rand_mask]
+
+                    sampled_distance = -2 * einsum('... i d, j d -> ... i j', sampled_input, codebook)
+
+                    sampled_prob = (-sampled_distance * inv_temperature).softmax(dim = -1)
+
+                    per_sample_probs = sampled_prob
                 else:
+                    if exists(mask):
+                        original_input = original_input[mask]
+                    original_input = rearrange(original_input, 'b n ... -> (b n) ...')
+                    # the same as euclidean distance up to a constant
+                    distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
+
+                    prob = (-distance * inv_temperature).softmax(dim = -1)
+
                     per_sample_probs = prob
 
                 # calculate per sample entropy
