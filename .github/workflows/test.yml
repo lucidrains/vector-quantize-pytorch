@@ -1,5 +1,5 @@
 name: Tests the examples in README
-on: push
+on: [push, pull_request]
 
 jobs:
   test:
