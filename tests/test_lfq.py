@@ -10,8 +10,12 @@ subdivisions: using masks, using frac_per_sample_entropy < 1
 torch.manual_seed(0)
 
 @pytest.mark.parametrize('frac_per_sample_entropy', (1., 0.5))
+@pytest.mark.parametrize('mask', (torch.tensor([False, False]),
+                                  torch.tensor([True, False]),
+                                  torch.tensor([True, True])))
 def test_masked_lfq(
-    frac_per_sample_entropy
+    frac_per_sample_entropy,
+    mask
 ):
     # you can specify either dim or codebook_size
     # if both specified, will be validated against each other
@@ -26,7 +30,7 @@ def test_masked_lfq(
 
     image_feats = torch.randn(2, 16, 32, 32)
 
-    ret, loss_breakdown = quantizer(image_feats, inv_temperature=100., return_loss_breakdown=True)  # you may want to experiment with temperature
+    ret, loss_breakdown = quantizer(image_feats, inv_temperature=100., return_loss_breakdown=True, mask=mask)  # you may want to experiment with temperature
 
     quantized, indices, _ = ret
     assert (quantized == quantizer.indices_to_codes(indices)).all()
