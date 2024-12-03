@@ -16,7 +16,7 @@ num_codes = 256
 seed = 1234
 
 rotation_trick = True  # rotation trick instead ot straight-through
-use_mlp = True        # use a one layer mlp with relu instead of linear
+use_mlp = True         # use a one layer mlp with relu instead of linear
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 

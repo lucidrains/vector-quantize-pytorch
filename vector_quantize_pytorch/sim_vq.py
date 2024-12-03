@@ -118,18 +118,15 @@ class SimVQ(Module):
 
         # commit loss and straight through, as was done in the paper
 
-        commit_loss = F.mse_loss(x.detach(), quantized)
+        commit_loss = (
+            F.mse_loss(x.detach(), quantized) +
+            F.mse_loss(x, quantized.detach()) * self.input_to_quantize_commit_loss_weight
+        )
 
         if self.rotation_trick:
             # rotation trick from @cfifty
             quantized = rotate_to(x, quantized)
         else:
-
-            commit_loss = (
-                commit_loss + 
-                F.mse_loss(x, quantized.detach()) * self.input_to_quantize_commit_loss_weight
-            )
-
             quantized = (quantized - x).detach() + x
 
         quantized = inverse_pack(quantized)
