@@ -219,11 +219,14 @@ def test_tiger():
 
     assert torch.allclose(quantized, quantized_out, atol = 1e-5)
 
-def test_fsq():
+@pytest.mark.parametrize('preserve_symmetry', (True, False))
+def test_fsq(
+    preserve_symmetry
+):
     from vector_quantize_pytorch import FSQ
 
     levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
-    quantizer = FSQ(levels)
+    quantizer = FSQ(levels, preserve_symmetry = preserve_symmetry)
 
     x = torch.randn(1, 1024, 4) # 4 since there are 4 levels
     xhat, indices = quantizer(x)
