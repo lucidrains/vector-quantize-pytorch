@@ -813,3 +813,14 @@ assert loss.item() >= 0
     volume  = {abs/2412.15195}
 }
 ```
+
+```bibtex
+@article{Parker2024ScalingTF,
+    title   = {Scaling Transformers for Low-Bitrate High-Quality Speech Coding},
+    author  = {Julian Parker and Anton Smirnov and Jordi Pons and CJ Carr and Zack Zukowski and Zach Evans and Xubo Liu},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2411.19842},
+    url     = {https://api.semanticscholar.org/CorpusID:274423406}
+}
+```
