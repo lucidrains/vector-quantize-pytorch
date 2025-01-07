@@ -1023,7 +1023,7 @@ class VectorQuantize(Module):
         return_loss_breakdown = False,
         codebook_transform_fn: Callable | None = None
     ):
-        orig_input = x
+        orig_input, input_requires_grad = x, x.requires_grad
 
         # handle masking, either passed in as `mask` or `lens`
 
@@ -1117,11 +1117,14 @@ class VectorQuantize(Module):
 
             commit_quantize = maybe_detach(quantize)
 
-            if self.rotation_trick:
-                quantize = rotate_to(x, quantize)
-            else:
-                # standard STE to get gradients through VQ layer.
-                quantize = x + (quantize - x).detach()
+            # spare rotation trick calculation if inputs do not need gradients
+
+            if input_requires_grad:
+                if self.rotation_trick:
+                    quantize = rotate_to(x, quantize)
+                else:
+                    # standard STE to get gradients through VQ layer.
+                    quantize = x + (quantize - x).detach()
 
             if self.sync_update_v > 0.:
                 # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf

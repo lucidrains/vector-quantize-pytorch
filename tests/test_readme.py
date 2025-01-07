@@ -6,9 +6,11 @@ def exists(v):
 
 @pytest.mark.parametrize('use_cosine_sim', (True, False))
 @pytest.mark.parametrize('rotation_trick', (True, False))
+@pytest.mark.parametrize('input_requires_grad', (True, False))
 def test_vq(
     use_cosine_sim,
-    rotation_trick
+    rotation_trick,
+    input_requires_grad
 ):
     from vector_quantize_pytorch import VectorQuantize
 
@@ -22,6 +24,10 @@ def test_vq(
     )
 
     x = torch.randn(1, 1024, 256)
+
+    if input_requires_grad:
+        x.requires_grad_()
+
     quantized, indices, commit_loss = vq(x)
 
 def test_vq_eval():
