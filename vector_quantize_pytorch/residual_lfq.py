@@ -1,12 +1,13 @@
 import random
 from math import log2
-from functools import partial
+from functools import partial, cache
 
 import torch
 from torch import nn
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 from torch.amp import autocast
+import torch.distributed as dist
 
 from vector_quantize_pytorch.lookup_free_quantization import LFQ
 
@@ -24,6 +25,19 @@ def default(val, d):
 
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
+
+# distributed helpers
+
+def is_distributed():
+    return dist.is_initialized() and dist.get_world_size() > 1
+
+def get_maybe_sync_seed(device, max_size = 10_000):
+    rand_int = torch.randint(0, max_size, (), device = device)
+
+    if is_distributed():
+        dist.all_reduce(rand_int)
+
+    return rand_int.item()
 
 # main class
 
@@ -144,7 +158,13 @@ class ResidualLFQ(Module):
         # also prepare null indices and loss
 
         if should_quantize_dropout:
-            rand = random.Random(rand_quantize_dropout_fixed_seed) if exists(rand_quantize_dropout_fixed_seed) else random
+
+            # check if seed is manually passed in
+
+            if not exists(rand_quantize_dropout_fixed_seed):
+                rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device)
+
+            rand = random.Random(rand_quantize_dropout_fixed_seed)
 
             rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
@@ -242,7 +262,7 @@ class GroupedResidualLFQ(Module):
         mask = None,
         return_all_codes = False
     ):
-        shape, split_dim = x.shape, self.split_dim
+        shape, split_dim, device = x.shape, self.split_dim, x.device
         assert shape[split_dim] == self.dim
 
         # split the feature dimension into groups
@@ -252,7 +272,7 @@ class GroupedResidualLFQ(Module):
         forward_kwargs = dict(
             mask = mask,
             return_all_codes = return_all_codes,
-            rand_quantize_dropout_fixed_seed = random.randint(0, int(1e7))
+            rand_quantize_dropout_fixed_seed = get_maybe_sync_seed(device) if self.training else None
         )
 
         # invoke residual vq on each group

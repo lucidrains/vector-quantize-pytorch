@@ -16,6 +16,8 @@ from torch.amp import autocast
 
 from einops import rearrange, pack, unpack
 
+import random
+
 # helper functions
 
 def exists(v):
@@ -62,9 +64,12 @@ class FSQ(Module):
         channel_first: bool = False,
         projection_has_bias: bool = True,
         return_indices = True,
-        force_quantization_f32 = True
+        force_quantization_f32 = True,
+        preserve_symmetry: bool = False,
+        noise_dropout = 0.0,
     ):
         super().__init__()
+
         _levels = torch.tensor(levels, dtype=int32)
         self.register_buffer("_levels", _levels, persistent = False)
 
@@ -72,6 +77,9 @@ class FSQ(Module):
         self.register_buffer("_basis", _basis, persistent = False)
 
         self.scale = scale
+
+        self.preserve_symmetry = preserve_symmetry
+        self.noise_dropout = noise_dropout
 
         codebook_dim = len(levels)
         self.codebook_dim = codebook_dim
@@ -110,12 +118,52 @@ class FSQ(Module):
         shift = (offset / half_l).atanh()
         return (z + shift).tanh() * half_l - offset
 
-    def quantize(self, z):
-        """ Quantizes z, returns quantized zhat, same shape as z. """
-        quantized = round_ste(self.bound(z))
-        half_width = self._levels // 2 # Renormalize to [-1, 1].
-        return quantized / half_width
+    # symmetry-preserving and noise-approximated quantization, section 3.2 in https://arxiv.org/abs/2411.19842
     
+    def symmetry_preserving_bound(self, z):
+        """
+        QL(x) = 2 / (L - 1) * [(L - 1) * (tanh(x) + 1) / 2 + 0.5] - 1
+        """
+        levels_minus_1 = (self._levels - 1)
+        scale = 2.0 / levels_minus_1
+        bracket = (levels_minus_1 * (torch.tanh(z) + 1) / 2.0) + 0.5
+        return scale * bracket - 1.0
+
+    def quantize(self, z, preserve_symmetry = False):
+        """ Quantizes z, returns quantized zhat, same shape as z. """
+
+        half_width = self._levels // 2
+
+        if self.training:
+            unquantized = z
+
+            # determine where to quantize elementwise
+
+            quantize_mask = torch.bernoulli(
+                torch.full([z.shape[0], 1, 1, 1], self.noise_dropout, device = z.device)
+            ).bool().expand_as(z)
+            
+            if preserve_symmetry:
+                quantized = round_ste(self.symmetry_preserving_bound(z)) / half_width
+            else:
+                quantized = round_ste(self.bound(z)) / half_width
+            quantized = torch.where(quantize_mask, unquantized, quantized)
+
+            # determine where to add a random offset elementwise
+
+            offset_mask = torch.bernoulli(
+                torch.full([z.shape[0], 1, 1, 1], self.noise_dropout, device = z.device)
+            ).bool().expand_as(z)
+            
+            offset = (torch.rand_like(z) - 0.5) / half_width
+            quantized = torch.where(offset_mask, unquantized + offset, quantized)
+        elif preserve_symmetry:
+            quantized = round_ste(self.symmetry_preserving_bound(z)) / half_width
+        else:
+            quantized = round_ste(self.bound(z)) / half_width
+
+        return quantized
+
     def _scale_and_shift(self, zhat_normalized):
         half_width = self._levels // 2
         return (zhat_normalized * half_width) + half_width
@@ -194,7 +242,7 @@ class FSQ(Module):
             if force_f32 and orig_dtype not in self.allowed_dtypes:
                 z = z.float()
 
-            codes = self.quantize(z)
+            codes = self.quantize(z, preserve_symmetry=self.preserve_symmetry)
 
             # returning indices could be optional
 
@@ -205,7 +253,7 @@ class FSQ(Module):
 
             codes = rearrange(codes, 'b n c d -> b n (c d)')
 
-            codes = codes.type(orig_dtype)
+            codes = codes.to(orig_dtype)
 
         # project out
 

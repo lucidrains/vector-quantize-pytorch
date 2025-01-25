@@ -276,6 +276,51 @@ indices = quantizer(x)
 
 This repository should also automatically synchronizing the codebooks in a multi-process setting. If somehow it isn't, please open an issue. You can override whether to synchronize codebooks or not by setting `sync_codebook = True | False`
 
+### Sim VQ
+
+<img src="./images/simvq.png" width="400px"></img>
+
+A <a href="https://arxiv.org/abs/2411.02038">new ICLR 2025 paper</a> proposes a scheme where the codebook is frozen, and the codes are implicitly generated through a linear projection. The authors claim this setup leads to less codebook collapse as well as easier convergence. I have found this to perform even better when paired with <a href="https://arxiv.org/abs/2410.06424">rotation trick</a> from Fifty et al., and expanding the linear projection to a small one layer MLP. You can experiment with it as so
+
+Update: hearing mixed results
+
+```python
+import torch
+from vector_quantize_pytorch import SimVQ
+
+sim_vq = SimVQ(
+    dim = 512,
+    codebook_size = 1024,
+    rotation_trick = True  # use rotation trick from Fifty et al.
+)
+
+x = torch.randn(1, 1024, 512)
+quantized, indices, commit_loss = sim_vq(x)
+
+assert x.shape == quantized.shape
+assert torch.allclose(quantized, sim_vq.indices_to_codes(indices), atol = 1e-6)
+```
+
+For the residual flavor, just import `ResidualSimVQ` instead
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualSimVQ
+
+residual_sim_vq = ResidualSimVQ(
+    dim = 512,
+    num_quantizers = 4,
+    codebook_size = 1024,
+    rotation_trick = True  # use rotation trick from Fifty et al.
+)
+
+x = torch.randn(1, 1024, 512)
+quantized, indices, commit_loss = residual_sim_vq(x)
+
+assert x.shape == quantized.shape
+assert torch.allclose(quantized, residual_sim_vq.get_output_from_indices(indices), atol = 1e-6)
+```
+
 ### Finite Scalar Quantization
 
 <img src="./images/fsq.png" width="500px"></img>
@@ -560,11 +605,11 @@ assert loss.item() >= 0
 
 ```bibtex
 @inproceedings{lee2022autoregressive,
-    title={Autoregressive Image Generation using Residual Quantization},
-    author={Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
-    booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-    pages={11523--11532},
-    year={2022}
+    title   = {Autoregressive Image Generation using Residual Quantization},
+    author  = {Lee, Doyup and Kim, Chiheon and Kim, Saehoon and Cho, Minsu and Han, Wook-Shin},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+    pages   = {11523--11532},
+    year    = {2022}
 }
 ```
 
@@ -608,16 +653,6 @@ assert loss.item() >= 0
     title   = {HiFi-Codec: Group-residual Vector quantization for High Fidelity Audio Codec},
     author  = {Dongchao Yang and Songxiang Liu and Rongjie Huang and Jinchuan Tian and Chao Weng and Yuexian Zou},
     year    = {2023}
-}
-```
-
-```bibtex
-@article{Liu2023BridgingDA,
-    title   = {Bridging Discrete and Backpropagation: Straight-Through and Beyond},
-    author  = {Liyuan Liu and Chengyu Dong and Xiaodong Liu and Bin Yu and Jianfeng Gao},
-    journal = {ArXiv},
-    year    = {2023},
-    volume  = {abs/2304.08612}
 }
 ```
 
@@ -722,5 +757,25 @@ assert loss.item() >= 0
     year    = {2024},
     volume  = {abs/2410.06424},
     url     = {https://api.semanticscholar.org/CorpusID:273229218}
+}
+```
+
+```bibtex
+@inproceedings{Zhu2024AddressingRC,
+    title   = {Addressing Representation Collapse in Vector Quantized Models with One Linear Layer},
+    author  = {Yongxin Zhu and Bocheng Li and Yifei Xin and Linli Xu},
+    year    = {2024},
+    url     = {https://api.semanticscholar.org/CorpusID:273812459}
+}
+```
+
+```bibtex
+@article{Parker2024ScalingTF,
+    title   = {Scaling Transformers for Low-Bitrate High-Quality Speech Coding},
+    author  = {Julian Parker and Anton Smirnov and Jordi Pons and CJ Carr and Zack Zukowski and Zach Evans and Xubo Liu},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2411.19842},
+    url     = {https://api.semanticscholar.org/CorpusID:274423406}
 }
 ```

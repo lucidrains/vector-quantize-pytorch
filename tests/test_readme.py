@@ -6,9 +6,11 @@ def exists(v):
 
 @pytest.mark.parametrize('use_cosine_sim', (True, False))
 @pytest.mark.parametrize('rotation_trick', (True, False))
+@pytest.mark.parametrize('input_requires_grad', (True, False))
 def test_vq(
     use_cosine_sim,
-    rotation_trick
+    rotation_trick,
+    input_requires_grad
 ):
     from vector_quantize_pytorch import VectorQuantize
 
@@ -22,6 +24,10 @@ def test_vq(
     )
 
     x = torch.randn(1, 1024, 256)
+
+    if input_requires_grad:
+        x.requires_grad_()
+
     quantized, indices, commit_loss = vq(x)
 
 def test_vq_eval():
@@ -201,11 +207,32 @@ def test_rq():
     x = torch.randn(1, 1024, 512)
     indices = quantizer(x)
 
-def test_fsq():
+def test_tiger():
+    from vector_quantize_pytorch import ResidualVQ
+
+    residual_vq = ResidualVQ(
+        dim = 2,
+        codebook_size = (5, 128, 256),
+    )
+
+    x = torch.randn(2, 2, 2)
+
+    residual_vq.train()
+
+    quantized, indices, commit_loss = residual_vq(x, freeze_codebook = True)
+
+    quantized_out = residual_vq.get_output_from_indices(indices)  # pass your indices into here, but the indices must come during .eval(), as during training some of the indices are dropped out (-1)
+
+    assert torch.allclose(quantized, quantized_out, atol = 1e-5)
+
+@pytest.mark.parametrize('preserve_symmetry', (True, False))
+def test_fsq(
+    preserve_symmetry
+):
     from vector_quantize_pytorch import FSQ
 
     levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
-    quantizer = FSQ(levels)
+    quantizer = FSQ(levels, preserve_symmetry = preserve_symmetry)
 
     x = torch.randn(1, 1024, 4) # 4 since there are 4 levels
     xhat, indices = quantizer(x)
@@ -344,3 +371,34 @@ def test_latent_q():
 
     assert image_feats.shape == quantized.shape
     assert (quantized == quantizer.indices_to_codes(indices)).all()
+
+def test_sim_vq():
+    from vector_quantize_pytorch import SimVQ
+
+    sim_vq = SimVQ(
+        dim = 512,
+        codebook_size = 1024,
+    )
+
+    x = torch.randn(1, 1024, 512)
+    quantized, indices, commit_loss = sim_vq(x)
+
+    assert x.shape == quantized.shape
+    assert torch.allclose(quantized, sim_vq.indices_to_codes(indices), atol = 1e-6)
+
+def test_residual_sim_vq():
+
+    from vector_quantize_pytorch import ResidualSimVQ
+
+    residual_sim_vq = ResidualSimVQ(
+        dim = 512,
+        num_quantizers = 4,
+        codebook_size = 1024,
+        channel_first = True
+    )
+
+    x = torch.randn(1, 512, 32, 32)
+    quantized, indices, commit_loss = residual_sim_vq(x)
+
+    assert x.shape == quantized.shape
+    assert torch.allclose(quantized, residual_sim_vq.get_output_from_indices(indices), atol = 1e-5)

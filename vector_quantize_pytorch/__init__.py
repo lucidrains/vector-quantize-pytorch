@@ -6,3 +6,8 @@ from vector_quantize_pytorch.lookup_free_quantization import LFQ
 from vector_quantize_pytorch.residual_lfq import ResidualLFQ, GroupedResidualLFQ
 from vector_quantize_pytorch.residual_fsq import ResidualFSQ, GroupedResidualFSQ
 from vector_quantize_pytorch.latent_quantization import LatentQuantize
+
+from vector_quantize_pytorch.sim_vq import SimVQ
+from vector_quantize_pytorch.residual_sim_vq import ResidualSimVQ
+
+from vector_quantize_pytorch.utils import Sequential
