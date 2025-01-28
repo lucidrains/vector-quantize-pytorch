@@ -337,6 +337,8 @@ class LFQ(Module):
 
                 # whether to only use a fraction of probs, for reducing memory
 
+                input_for_entropy = original_input
+
                 if exists(mask):
                     input_for_entropy = original_input[mask]
 
