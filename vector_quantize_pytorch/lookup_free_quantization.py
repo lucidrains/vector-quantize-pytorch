@@ -326,6 +326,20 @@ class LFQ(Module):
             else:
                 x = quantized
 
+            # commit loss
+
+            if self.training and self.commitment_loss_weight > 0.:
+
+                commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
+
+                if exists(mask):
+                    commit_loss = commit_loss[mask]
+
+                commit_loss = commit_loss.mean()
+            else:
+                commit_loss = self.zero
+
+
             # entropy aux loss
 
             if self.training:
@@ -389,19 +403,6 @@ class LFQ(Module):
 
             if self.training and self.experimental_softplus_entropy_loss:
                 entropy_aux_loss = F.softplus(entropy_aux_loss + self.entropy_loss_offset)
-
-            # commit loss
-
-            if self.training and self.commitment_loss_weight > 0.:
-
-                commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
-
-                if exists(mask):
-                    commit_loss = commit_loss[mask]
-
-                commit_loss = commit_loss.mean()
-            else:
-                commit_loss = self.zero
 
             # input back to original dtype if needed
 
