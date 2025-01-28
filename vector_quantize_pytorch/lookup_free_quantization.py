@@ -337,17 +337,19 @@ class LFQ(Module):
 
                 # whether to only use a fraction of probs, for reducing memory
 
+                if exists(mask):
+                    input_for_entropy = original_input[mask]
+
+                input_for_entropy = rearrange(input_for_entropy, 'b n ... -> (b n) ...')
+
                 if self.frac_per_sample_entropy < 1.:
                     # account for mask
-                    if exists(mask):
-                        original_input = original_input[mask]
-                    original_input = rearrange(original_input, 'b n ... -> (b n) ...')
 
-                    num_tokens = original_input.size(0)
+                    num_tokens = input_for_entropy.size(0)
                     num_sampled_tokens = int(num_tokens * self.frac_per_sample_entropy)
                     rand_mask = torch.randn(num_tokens).argsort(dim = -1) < num_sampled_tokens
 
-                    sampled_input = original_input[rand_mask]
+                    sampled_input = input_for_entropy[rand_mask]
 
                     sampled_distance = -2 * einsum('... i d, j d -> ... i j', sampled_input, codebook)
 
@@ -355,11 +357,9 @@ class LFQ(Module):
 
                     per_sample_probs = sampled_prob
                 else:
-                    if exists(mask):
-                        original_input = original_input[mask]
-                    original_input = rearrange(original_input, 'b n ... -> (b n) ...')
+
                     # the same as euclidean distance up to a constant
-                    distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
+                    distance = -2 * einsum('... i d, j d -> ... i j', input_for_entropy, codebook)
 
                     prob = (-distance * inv_temperature).softmax(dim = -1)
 
