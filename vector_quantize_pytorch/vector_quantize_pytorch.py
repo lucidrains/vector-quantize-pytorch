@@ -85,13 +85,57 @@ def gumbel_noise(t):
     noise = torch.zeros_like(t).uniform_(0, 1)
     return -log(-log(noise))
 
+def run_optimal_transport(A: Tensor, n_iters: int = 3, epsilon: float = 1, is_distributed: bool = False, use_norm: bool = True):
+    """
+    Args:
+        A: The A matrix (large values are preferred), size: (N, B, K)
+        n_iters: Number of Sinkhorn iterations
+        epsilon: The Sinkhorn regularization term.
+        is_distributed: Whether to use distributed training.
+        use_norm: Whether to normalize the cost matrix.
+    """
+    if use_norm:
+        A = (A - A.mean()) / (A.std() + 1e-6)
+        A = A - A.max()
+
+    Q = torch.exp(A * epsilon).permute(0, 2, 1) # (N, K, B)
+    if is_distributed:
+        B = Q.size(2) * distributed.get_world_size()
+    else:
+        B = Q.size(2)
+    K = Q.size(1)
+
+    # make the matrix sums to 1
+    sum_Q = Q.sum(dim=-1, keepdim=True).sum(dim=-1, keepdim=True)
+    if is_distributed:
+        distributed.all_reduce(sum_Q)
+    Q /= (sum_Q + 1e-8)
+
+    for _ in range(n_iters):
+        # normalize each row: total weight per prototype must be 1/K
+        sum_of_rows = torch.sum(Q, dim=2, keepdim=True)
+        if is_distributed:
+            distributed.all_reduce(sum_of_rows)
+        Q /= (sum_of_rows + 1e-8)
+        Q /= K
+
+        # normalize each column: total weight per sample must be 1/B
+        Q /= (torch.sum(Q, dim=1, keepdim=True) + 1e-8)
+        Q /= B
+    
+    Q *= B # the columns must sum to 1 so that Q is an assignment
+    return Q.permute(0, 2, 1) # (N, B, K)
+
 def gumbel_sample(
     logits,
     temperature = 1.,
     stochastic = False,
     straight_through = False,
     dim = -1,
-    training = True
+    training = True,
+    optimal_transport = False,
+    n_iters = 5,
+    epsilon = 10,
 ):
     dtype, size = logits.dtype, logits.shape[dim]
 
@@ -100,7 +144,13 @@ def gumbel_sample(
     else:
         sampling_logits = logits
 
-    ind = sampling_logits.argmax(dim = dim)
+    if optimal_transport:
+        Q = run_optimal_transport(sampling_logits, n_iters=n_iters, epsilon=epsilon,
+                     is_distributed=is_distributed(), use_norm=True)
+        ind = Q.argmax(dim = dim)
+    else:
+        ind = sampling_logits.argmax(dim = dim)
+
     one_hot = F.one_hot(ind, size).type(dtype)
 
     if not straight_through or temperature <= 0. or not training:
@@ -846,7 +896,11 @@ class VectorQuantize(Module):
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9,
         sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
-        return_zeros_for_masked_padding = True
+        return_zeros_for_masked_padding = True,
+        # OptVQ: Preventing Local Pitfalls in Vector Quantization via Optimal Transport 
+        optimal_transport: bool = False,
+        n_iters: int = 5,
+        epsilon: float = 10,
     ):
         super().__init__()
         self.dim = dim
@@ -901,7 +955,10 @@ class VectorQuantize(Module):
         gumbel_sample_fn = partial(
             gumbel_sample,
             stochastic = stochastic_sample_codes,
-            straight_through = straight_through
+            straight_through = straight_through,
+            optimal_transport = optimal_transport,
+            n_iters = n_iters,
+            epsilon = epsilon
         )
 
         if not exists(sync_codebook):
