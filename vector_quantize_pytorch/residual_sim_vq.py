@@ -150,7 +150,7 @@ class ResidualSimVQ(Module):
         all_losses = []
         all_indices = []
 
-        should_quantize_dropout = self.training and self.quantize_dropout and not return_loss
+        should_quantize_dropout = self.training and self.quantize_dropout
 
         # sample a layer index at which to dropout further residual quantization
         # also prepare null indices and loss
