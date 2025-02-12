@@ -59,6 +59,7 @@ class ResidualFSQ(Module):
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
+        soft_clamp_input_value = None,
         **kwargs
     ):
         super().__init__()
@@ -72,6 +73,12 @@ class ResidualFSQ(Module):
 
         self.is_channel_first = is_channel_first
         self.num_quantizers = num_quantizers
+
+        # soft clamping the input value
+
+        self.soft_clamp_input_value = soft_clamp_input_value
+
+        # layers
 
         self.levels = levels
         self.layers = nn.ModuleList([])
@@ -169,6 +176,14 @@ class ResidualFSQ(Module):
         # maybe project in
 
         x = self.project_in(x)
+
+        # maybe softclamp input before residual layers
+
+        if exists(self.soft_clamp_input_value):
+            clamp_value = self.soft_clamp_input_value
+            x = (x / clamp_value).tanh() * clamp_value
+
+        # ready some variables to be accumulated
 
         quantized_out = 0.
         residual = x
