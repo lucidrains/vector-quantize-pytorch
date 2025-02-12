@@ -251,6 +251,41 @@ quantized, indices, loss = vq(img_fmap)
 
 ```
 
+### OptVQ
+
+| ***Towards high codebook utilization via replaceing nearest neighbor search with optimal transport***    
+
+<img src="./images/optvq.png" width="500px"></img>
+
+**OptVQ** is introduced in the research paper [Preventing Local Pitfalls in Vector Quantization via Optimal Transport](https://arxiv.org/abs/2412.15195).
+The detailed implementation of this methodology can be accessed through the GitHub repository [zbr17/OptVQ](https://github.com/zbr17/OptVQ).
+
+This variation of Vector Quantization (VQ) addresses the primary issue of training instability, such as index collapse, by identifying local minima as a significant contributor. To mitigate this, OptVQ incorporates an optimal transport approach in lieu of the traditional nearest neighbor search, facilitating a more globally informed assignment. The Sinkhorn algorithm is employed to optimize the optimal transport problem, thereby enhancing both the stability and efficiency of the training process. In the majority of cases, OptVQ is capable of achieving nearly **100%** codebook utilization without the need for special initialization or additional regularization techniques.
+
+To implement OptVQ, you can set the `optimal_transport = True` within the `VectorQuantize` class, as demonstrated below:
+```python
+import torch
+from vector_quantize_pytorch import VectorQuantize
+
+vq = VectorQuantize(
+    dim = 256,
+    codebook_size = 512,     # codebook size
+    decay = 0.8,             # the exponential moving average decay, lower means the dictionary will change faster
+    commitment_weight = 1.   # the weight on the commitment loss,
+    # NOTE: OptVQ specific
+    optimal_transport = True # You only need to set this to True to enable OptVQ
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, commit_loss = vq(x) # (1, 1024, 256), (1, 1024), (1)
+```
+
+For a visual demonstration of **OptVQ**'s impact on codebook utilization compared to standard VQ in a 2D context, you can refer to the [notebook](examples/toy_example_optvq.ipynb). The optimization process is illustrated in the figures below.
+
+<img src="./images/optvq_2d_result.png" width="800px"></img>
+
+For those interested in training a VQ-VAE model on a dataset, an [example](examples/autoencoder_optvq.py) is provided, showcasing the integration of OptVQ within a VQ-VAE framework.
+
 ### Random Projection Quantizer
 
 <a href="https://arxiv.org/abs/2202.01855">This paper</a> first proposed to use a random projection quantizer for masked speech modeling, where signals are projected with a randomly initialized matrix and then matched with a random initialized codebook. One therefore does not need to learn the quantizer. This technique was used by Google's <a href="https://ai.googleblog.com/2023/03/universal-speech-model-usm-state-of-art.html">Universal Speech Model</a> to achieve SOTA for speech-to-text modeling.
@@ -766,6 +801,16 @@ assert loss.item() >= 0
     author  = {Yongxin Zhu and Bocheng Li and Yifei Xin and Linli Xu},
     year    = {2024},
     url     = {https://api.semanticscholar.org/CorpusID:273812459}
+}
+```
+
+```bibtex
+@article{zhang2024preventing,
+    title   = {Preventing Local Pitfalls in Vector Quantization via Optimal Transport},
+    author  = {Borui Zhang and Wenzhao Zheng and Jie Zhou and Jiwen Lu},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2412.15195}
 }
 ```
 
