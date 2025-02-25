@@ -1,5 +1,5 @@
 import random
-from math import log2
+from math import ceil
 from functools import partial
 
 from typing import List

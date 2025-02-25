@@ -1,5 +1,5 @@
 import random
-from math import log2
+from math import ceil, log2
 from functools import partial, cache
 
 import torch
