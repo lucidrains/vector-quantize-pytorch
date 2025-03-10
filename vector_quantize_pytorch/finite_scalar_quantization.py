@@ -14,6 +14,7 @@ from torch.nn import Module
 from torch import Tensor, int32
 from torch.amp import autocast
 
+import einx
 from einops import rearrange, pack, unpack
 
 import random
@@ -45,9 +46,13 @@ def unpack_one(t, ps, pattern):
 
 # tensor helpers
 
-def round_ste(z: Tensor) -> Tensor:
+def round_ste(z):
     """Round with straight through gradients."""
     zhat = z.round()
+    return z + (zhat - z).detach()
+
+def floor_ste(z):
+    zhat = z.floor()
     return z + (zhat - z).detach()
 
 # main class
@@ -127,40 +132,42 @@ class FSQ(Module):
         levels_minus_1 = (self._levels - 1)
         scale = 2.0 / levels_minus_1
         bracket = (levels_minus_1 * (torch.tanh(z) + 1) / 2.0) + 0.5
+        bracket = floor_ste(bracket)
         return scale * bracket - 1.0
 
-    def quantize(self, z, preserve_symmetry = False):
+    def quantize(self, z):
         """ Quantizes z, returns quantized zhat, same shape as z. """
 
+        preserve_symmetry = self.preserve_symmetry
         half_width = self._levels // 2
 
-        if self.training:
-            unquantized = z
-
-            # determine where to quantize elementwise
-
-            quantize_mask = torch.bernoulli(
-                torch.full([z.shape[0], 1, 1, 1], self.noise_dropout, device = z.device)
-            ).bool().expand_as(z)
-            
-            if preserve_symmetry:
-                quantized = round_ste(self.symmetry_preserving_bound(z)) / half_width
-            else:
-                quantized = round_ste(self.bound(z)) / half_width
-            quantized = torch.where(quantize_mask, unquantized, quantized)
-
-            # determine where to add a random offset elementwise
-
-            offset_mask = torch.bernoulli(
-                torch.full([z.shape[0], 1, 1, 1], self.noise_dropout, device = z.device)
-            ).bool().expand_as(z)
-            
-            offset = (torch.rand_like(z) - 0.5) / half_width
-            quantized = torch.where(offset_mask, unquantized + offset, quantized)
-        elif preserve_symmetry:
+        if preserve_symmetry:
             quantized = round_ste(self.symmetry_preserving_bound(z)) / half_width
         else:
             quantized = round_ste(self.bound(z)) / half_width
+
+        if not self.training:
+            return quantized
+
+        batch, device, noise_dropout = z.shape[0], z.device, self.noise_dropout
+        unquantized = z
+
+        # determine where to quantize elementwise
+
+        quantize_mask = torch.bernoulli(
+            torch.full((batch,), noise_dropout, device = device)
+        ).bool()
+
+        quantized = torch.where(quantize_mask, unquantized, quantized)
+
+        # determine where to add a random offset elementwise
+
+        offset_mask = torch.bernoulli(
+            torch.full((batch,), noise_dropout, device = device)
+        ).bool()
+
+        offset = (torch.rand_like(z) - 0.5) / half_width
+        quantized = einx.where('b, b ..., b ...', offset_mask, unquantized + offset, quantized)
 
         return quantized
 
@@ -242,7 +249,7 @@ class FSQ(Module):
             if force_f32 and orig_dtype not in self.allowed_dtypes:
                 z = z.float()
 
-            codes = self.quantize(z, preserve_symmetry=self.preserve_symmetry)
+            codes = self.quantize(z)
 
             # returning indices could be optional
 
