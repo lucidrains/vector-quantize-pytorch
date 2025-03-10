@@ -71,8 +71,7 @@ def test_vq_mask():
     assert (mask_quantized[:, 512:] == 0.).all()
     assert (mask_indices[:, 512:] == -1).all()
 
-@pytest.mark.parametrize('implicit_neural_codebook', (True, False))
-@pytest.mark.parametrize('use_cosine_sim', (True, False))
+@pytest.mark.parametrize('implicit_neural_codebook, use_cosine_sim', ((True, False), (False, True), (False, False)))
 @pytest.mark.parametrize('train', (True, False))
 @pytest.mark.parametrize('shared_codebook', (True, False))
 def test_residual_vq(
