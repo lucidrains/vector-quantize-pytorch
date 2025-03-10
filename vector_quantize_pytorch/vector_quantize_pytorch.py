@@ -873,6 +873,7 @@ class VectorQuantize(Module):
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
+        assert not (use_cosine_sim and learnable_codebook), 'cosine sim distance codebook not compatible with learnable codebook yet'
         self.learnable_codebook = learnable_codebook
 
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.
