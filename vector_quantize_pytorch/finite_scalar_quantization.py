@@ -158,7 +158,7 @@ class FSQ(Module):
             torch.full((batch,), noise_dropout, device = device)
         ).bool()
 
-        quantized = torch.where(quantize_mask, unquantized, quantized)
+        quantized = einx.where('b, b ..., b ...', quantize_mask, unquantized, quantized)
 
         # determine where to add a random offset elementwise
 
