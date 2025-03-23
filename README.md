@@ -280,7 +280,7 @@ This repository should also automatically synchronizing the codebooks in a multi
 
 <img src="./images/simvq.png" width="400px"></img>
 
-A <a href="https://arxiv.org/abs/2411.02038">new ICLR 2025 paper</a> proposes a scheme where the codebook is frozen, and the codes are implicitly generated through a linear projection. The authors claim this setup leads to less codebook collapse as well as easier convergence. I have found this to perform even better when paired with <a href="https://arxiv.org/abs/2410.06424">rotation trick</a> from Fifty et al., and expanding the linear projection to a small one layer MLP. You can experiment with it as so
+A <a href="https://arxiv.org/abs/2411.02038">new paper</a> proposes a scheme where the codebook is frozen, and the codes are implicitly generated through a linear projection. The authors claim this setup leads to less codebook collapse as well as easier convergence. I have found this to perform even better when paired with <a href="https://arxiv.org/abs/2410.06424">rotation trick</a> from Fifty et al., and expanding the linear projection to a small one layer MLP. You can experiment with it as so
 
 Update: hearing mixed results
 
