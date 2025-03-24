@@ -85,6 +85,8 @@ class MLP(Module):
     ):
         one_headed = codes.ndim == 2
 
+        condition, _ = pack([condition], 'b * d') # handle condition with ndim 2 - (batch, dim)
+
         if one_headed:
             codes = rearrange(codes, 'c d -> 1 c d')
 
