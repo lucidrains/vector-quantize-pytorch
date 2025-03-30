@@ -559,9 +559,18 @@ class EuclideanCodebook(Module):
 
         else:
             if exists(codebook_transform_fn):
-                quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
+                # quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
+
+                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n 1 d', d = transformed_embed.shape[-1])
+                quantize = transformed_embed.gather(-2, repeated_embed_ind)
+                quantize = rearrange(quantize, 'h b n 1 d -> h b n d')
+
             else:
-                quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
+                # quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
+
+                repeated_embed = repeat(embed, 'h c d -> h b c d', b = embed_ind.shape[1])
+                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
+                quantize = repeated_embed.gather(-2, repeated_embed_ind)
 
         if self.training and self.ema_update and not freeze_codebook:
 
@@ -767,9 +776,18 @@ class CosineSimCodebook(Module):
 
         else:
             if exists(codebook_transform_fn):
-                quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
+                # quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
+
+                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n 1 d', d = transformed_embed.shape[-1])
+                quantize = transformed_embed.gather(-2, repeated_embed_ind)
+                quantize = rearrange(quantize, 'h b n 1 d -> h b n d')
+
             else:
-                quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
+                # quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
+
+                repeated_embed = repeat(embed, 'h c d -> h b c d', b = embed_ind.shape[1])
+                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
+                quantize = repeated_embed.gather(-2, repeated_embed_ind)
 
         if self.training and self.ema_update and not freeze_codebook:
             if exists(mask):
