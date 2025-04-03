@@ -138,11 +138,15 @@ def sample_multinomial(total_count, probs):
     remainder = probs.new_ones(())
     sample = torch.empty_like(probs, dtype = torch.long)
 
-    for i, p in enumerate(probs):
-        s = torch.binomial(total_count, p / remainder)
+    num_probs = len(probs)
+
+    for i, prob in enumerate(probs):
+        is_last = i == (num_probs - 1)
+
+        s = torch.binomial(total_count, prob / remainder) if not is_last else total_count
         sample[i] = s
         total_count -= s
-        remainder -= p
+        remainder -= prob
 
     assert total_count == 0, f'invalid total count {total_count}'
 
