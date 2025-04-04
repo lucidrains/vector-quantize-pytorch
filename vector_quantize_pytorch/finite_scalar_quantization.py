@@ -137,37 +137,20 @@ class FSQ(Module):
 
     def quantize(self, z):
         """ Quantizes z, returns quantized zhat, same shape as z. """
+        shape, device, noise_dropout, preserve_symmetry, half_width = z.shape[0], z.device, self.noise_dropout, self.preserve_symmetry, (self._levels // 2)
 
-        preserve_symmetry = self.preserve_symmetry
-        half_width = self._levels // 2
+        # determine where to add a random offset elementwise
+        # if using noise dropout
+
+        if self.training and noise_dropout > 0.:
+            offset_mask = torch.bernoulli(torch.full_like(z, noise_dropout)).bool()
+            offset = (torch.rand_like(z) - 0.5) / half_width
+            z = torch.where(offset_mask, z + offset, z)
 
         if preserve_symmetry:
             quantized = round_ste(self.symmetry_preserving_bound(z)) / half_width
         else:
             quantized = round_ste(self.bound(z)) / half_width
-
-        if not self.training:
-            return quantized
-
-        batch, device, noise_dropout = z.shape[0], z.device, self.noise_dropout
-        unquantized = z
-
-        # determine where to quantize elementwise
-
-        quantize_mask = torch.bernoulli(
-            torch.full((batch,), noise_dropout, device = device)
-        ).bool()
-
-        quantized = einx.where('b, b ..., b ...', quantize_mask, unquantized, quantized)
-
-        # determine where to add a random offset elementwise
-
-        offset_mask = torch.bernoulli(
-            torch.full((batch,), noise_dropout, device = device)
-        ).bool()
-
-        offset = (torch.rand_like(z) - 0.5) / half_width
-        quantized = einx.where('b, b ..., b ...', offset_mask, unquantized + offset, quantized)
 
         return quantized
 
