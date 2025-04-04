@@ -141,15 +141,17 @@ class FSQ(Module):
         shape, device, noise_dropout, preserve_symmetry, half_width = z.shape[0], z.device, self.noise_dropout, self.preserve_symmetry, (self._levels // 2)
         bound_fn = self.symmetry_preserving_bound if preserve_symmetry else self.bound
 
+        bounded_z = bound_fn(z)
+
         # determine where to add a random offset elementwise
         # if using noise dropout
 
         if self.training and noise_dropout > 0.:
-            offset_mask = torch.bernoulli(torch.full_like(z, noise_dropout)).bool()
-            offset = torch.rand_like(z) - 0.5
-            z = torch.where(offset_mask, z + offset, z)
+            offset_mask = torch.bernoulli(torch.full_like(bounded_z, noise_dropout)).bool()
+            offset = torch.rand_like(bounded_z) - 0.5
+            bounded_z = torch.where(offset_mask, bounded_z + offset, bounded_z)
 
-        return round_ste(bound_fn(z)) / half_width
+        return round_ste(bounded_z) / half_width
 
     def _scale_and_shift(self, zhat_normalized):
         half_width = self._levels // 2
