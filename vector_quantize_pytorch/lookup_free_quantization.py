@@ -330,8 +330,10 @@ class LFQ(Module):
 
             if self.training:
 
+                codebook = self.codebook
+
                 if force_f32:
-                    codebook = self.codebook.float()
+                    codebook = codebook.float()
 
                 codebook = self.maybe_l2norm(codebook)
 
