@@ -178,13 +178,17 @@ class FSQ(Module):
         codes_non_centered = (indices // self._basis) % self._levels
         return codes_non_centered
 
-    def indices_to_codes(self, indices):
+    def indices_to_codes(self, indices, codebook_transform_fn=None):
         """ Inverse of `codes_to_indices`. """
         assert exists(indices)
 
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
         codes = self._indices_to_codes(indices)
+        
+        # Apply codebook transform if provided (consistent with VectorQuantize)
+        if exists(codebook_transform_fn):
+            codes = codebook_transform_fn(codes)
 
         if self.keep_num_codebooks_dim:
             codes = rearrange(codes, '... c d -> ... (c d)')
@@ -196,7 +200,7 @@ class FSQ(Module):
 
         return codes
 
-    def forward(self, z):
+    def forward(self, z, codebook_transform_fn=None):
         """
         einstein notation
         b - batch

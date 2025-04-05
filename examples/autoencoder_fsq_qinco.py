@@ -1,5 +1,5 @@
-# FashionMnist VQ experiment with various settings, using FSQ.
-# From https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
+# FashionMnist experiment with FSQ and QINCO.
+# Based on https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
 
 from tqdm.auto import trange
 
@@ -10,17 +10,18 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 from vector_quantize_pytorch import FSQ, Sequential
+from vector_quantize_pytorch.residual_fsq import ResidualFSQ
 
 
 lr = 3e-4
 train_iter = 1000
-levels = [8, 4, 4] # target size 2^8, actual size 240
+levels = [8, 8, 4]
 num_codes = math.prod(levels)
 seed = 1234
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def SimpleFSQAutoEncoder(levels: list[int]):
+def QINCOFSQAutoEncoder(levels: list[int]):
     return Sequential(
         nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
         nn.MaxPool2d(kernel_size=2, stride=2),
@@ -28,7 +29,19 @@ def SimpleFSQAutoEncoder(levels: list[int]):
         nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
         nn.MaxPool2d(kernel_size=2, stride=2),
         nn.Conv2d(32, len(levels), kernel_size=1),
-        FSQ(levels),
+        ResidualFSQ(
+            levels=levels,
+            num_quantizers=2,
+            dim=len(levels),
+            quantize_dropout=True,
+            quantize_dropout_cutoff_index=1,
+            implicit_neural_codebook=True,  # Enable QINCO
+            mlp_kwargs=dict(
+                dim_hidden=64,
+                depth=1
+            ),
+            is_channel_first=True
+        ),
         nn.Conv2d(len(levels), 32, kernel_size=3, stride=1, padding=1),
         nn.Upsample(scale_factor=2, mode="nearest"),
         nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
@@ -59,9 +72,13 @@ def train(model, train_loader, train_iterations=1000):
         rec_loss.backward()
 
         opt.step()
+        
+        first_quantizer_indices = indices[:, :, :, 0]
+        active_pct = first_quantizer_indices.unique().numel() / num_codes * 100
+        
         pbar.set_description(
             f"rec loss: {rec_loss.item():.3f} | "
-            + f"active %: {indices.unique().numel() / num_codes * 100:.3f}"
+            + f"active %: {active_pct:.3f}"
         )
 
 
@@ -77,6 +94,6 @@ train_dataset = DataLoader(
 )
 
 torch.random.manual_seed(seed)
-model = SimpleFSQAutoEncoder(levels).to(device)
+model = QINCOFSQAutoEncoder(levels).to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
 train(model, train_dataset, train_iterations=train_iter)
