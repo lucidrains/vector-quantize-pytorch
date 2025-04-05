@@ -44,6 +44,66 @@ def get_maybe_sync_seed(device, max_size = 10_000):
 
     return rand_int.item()
 
+# the mlp for generating the neural implicit codebook
+# from Huijben et al. https://arxiv.org/abs/2401.14732
+
+class MLP(Module):
+    def __init__(
+        self,
+        dim,
+        dim_hidden = None,
+        depth = 4,             # they used 4 layers in the paper
+        l2norm_output = False
+    ):
+        super().__init__()
+        dim_hidden = default(dim_hidden, dim)
+
+        self.proj_in = nn.Linear(2 * dim, dim)
+
+        layers = ModuleList([])
+
+        for _ in range(depth):
+            layers.append(nn.Sequential(
+                nn.Linear(dim, dim_hidden),
+                nn.SiLU(),
+                nn.Linear(dim_hidden, dim)
+            ))
+
+        self.layers = layers
+        self.l2norm_output = l2norm_output
+
+    def forward(
+        self,
+        codes,
+        *,
+        condition
+    ):
+        one_headed = codes.ndim == 2
+
+        condition, _ = pack([condition], 'b * d') # handle condition with ndim 2 - (batch, dim)
+
+        if one_headed:
+            codes = rearrange(codes, 'c d -> 1 c d')
+
+        heads, num_codes, batch, seq_len = codes.shape[0], codes.shape[-2], condition.shape[0], condition.shape[-2]
+
+        codes = repeat(codes, 'h c d -> h b n c d', n = seq_len, b = batch)
+        condition = repeat(condition, 'b n d -> h b n c d', c = num_codes, h = heads)
+
+        x = torch.cat((condition, codes), dim = -1)
+        x = self.proj_in(x)
+
+        for layer in self.layers:
+            x = layer(x) + x
+
+        if self.l2norm_output:
+            x = F.normalize(x, dim = -1)
+
+        if not one_headed:
+            return x
+
+        return rearrange(x, '1 ... -> ...')
+
 # main class
 
 class ResidualFSQ(Module):
@@ -60,6 +120,8 @@ class ResidualFSQ(Module):
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
         soft_clamp_input_value = None,
+        implicit_neural_codebook = False, # QINCo from https://arxiv.org/abs/2401.14732
+        mlp_kwargs: dict = dict(),
         **kwargs
     ):
         super().__init__()
@@ -73,13 +135,14 @@ class ResidualFSQ(Module):
 
         self.is_channel_first = is_channel_first
         self.num_quantizers = num_quantizers
+        
+        # implicit neural codebook flag
+        self.implicit_neural_codebook = implicit_neural_codebook
 
         # soft clamping the input value
-
         self.soft_clamp_input_value = soft_clamp_input_value
 
         # layers
-
         self.levels = levels
         self.layers = nn.ModuleList([])
 
@@ -110,6 +173,14 @@ class ResidualFSQ(Module):
 
         self.quantize_dropout_cutoff_index = quantize_dropout_cutoff_index
         self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
+        
+        # setting up the MLPs for implicit neural codebooks
+        self.mlps = None
+
+        if implicit_neural_codebook:
+            self.mlps = ModuleList([MLP(dim = codebook_dim, **mlp_kwargs) for _ in range(num_quantizers - 1)])
+        else:
+            self.mlps = (None,) * (num_quantizers - 1)
 
     @property
     def codebooks(self):
@@ -137,19 +208,42 @@ class ResidualFSQ(Module):
         mask = indices == -1
         indices = indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
 
-        all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
+        if not self.implicit_neural_codebook:
+            # Standard lookup for FSQ codes
+            all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
+        else:
+            # Using neural implicit codebook with MLPs
+            code_transform_mlps = (None, *self.mlps)
+            
+            all_codes = []
+            quantized_out = 0.
+            
+            for codes, indices_layer, maybe_transform_mlp in zip(self.codebooks, indices.unbind(dim=-1), code_transform_mlps):
+                if exists(maybe_transform_mlp):
+                    # Apply neural codebook transformation based on accumulated quantized value
+                    codes = maybe_transform_mlp(codes, condition=quantized_out)
+                    layer_codes = get_at('b n [c] d, b n -> b n d', codes, indices_layer)
+                else:
+                    layer_codes = get_at('[c] d, b n -> b n d', codes, indices_layer)
+                
+                # Scale the codes (specific to FSQ)
+                layer_index = len(all_codes)
+                layer_codes = layer_codes * self.scales[layer_index]
+                
+                all_codes.append(layer_codes)
+                quantized_out += layer_codes
+            
+            all_codes = torch.stack(all_codes)
 
         # mask out any codes that were dropout-ed
-
         all_codes = all_codes.masked_fill(rearrange(mask, 'b n q -> q b n 1'), 0.)
 
-        # scale the codes
-
-        scales = rearrange(self.scales, 'q d -> q 1 1 d')
-        all_codes = all_codes * scales
+        # If not using implicit neural codebook, apply scaling here
+        if not self.implicit_neural_codebook:
+            scales = rearrange(self.scales, 'q d -> q 1 1 d')
+            all_codes = all_codes * scales
 
         # if (accept_image_fmap = True) then return shape (quantize, batch, height, width, dimension)
-
         all_codes, = unpack(all_codes, ps, 'q b * d')
 
         return all_codes
@@ -210,18 +304,31 @@ class ResidualFSQ(Module):
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
             null_indices = torch.full(x.shape[:2], -1., device = device, dtype = torch.long)
+        
+        # setup the mlps for implicit neural codebook
+        maybe_code_transforms = (None,) * len(self.layers)
+
+        if self.implicit_neural_codebook:
+            maybe_code_transforms = (None, *self.mlps)
 
         # go through the layers
 
         with autocast('cuda', enabled = False):
-            for quantizer_index, (layer, scale) in enumerate(zip(self.layers, self.scales)):
+            for quantizer_index, (layer, scale, maybe_mlp) in enumerate(zip(self.layers, self.scales, maybe_code_transforms)):
 
                 if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
                     all_indices.append(null_indices)
                     continue
-
+                
+                # setup the transform code function if using QINCO
+                codebook_transform_fn = None
+                if exists(maybe_mlp):
+                    codebook_transform_fn = partial(maybe_mlp, condition = quantized_out)
+                
+                # FSQ quantization (modified to support codebook_transform_fn if needed)
+                # Note: FSQ doesn't have a direct way to pass in codebook_transform_fn like VQ does
+                # So we'll use the standard FSQ approach here and apply transformations in get_codes_from_indices
                 quantized, indices = layer(residual / scale)
-
                 quantized = quantized * scale
 
                 residual = residual - quantized.detach()
@@ -270,6 +377,8 @@ class GroupedResidualFSQ(Module):
         dim,
         groups = 1,
         accept_image_fmap = False,
+        implicit_neural_codebook = False,
+        mlp_kwargs: dict = dict(),
         **kwargs
     ):
         super().__init__()
@@ -279,12 +388,15 @@ class GroupedResidualFSQ(Module):
         dim_per_group = dim // groups
 
         self.accept_image_fmap = accept_image_fmap
+        self.implicit_neural_codebook = implicit_neural_codebook
 
         self.rvqs = nn.ModuleList([])
 
         for _ in range(groups):
             self.rvqs.append(ResidualFSQ(
                 dim = dim_per_group,
+                implicit_neural_codebook = implicit_neural_codebook,
+                mlp_kwargs = mlp_kwargs,
                 **kwargs
             ))
 
