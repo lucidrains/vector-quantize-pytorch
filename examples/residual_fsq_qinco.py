@@ -42,17 +42,15 @@ with torch.no_grad():
 # Calculate MSE
 qinco_mse = F.mse_loss(qinco_output, input_latent).item()
 
-# Calculate minimum codebook utilization across quantizers
-unique_codes = [indices.unique().numel() for indices in qinco_indices.unbind(dim=-1)]
+# Calculate codebook utilization using the first quantizer (most significant)
 codebook_size = math.prod(levels)
-active_pcts = [num_unique / codebook_size * 100 for num_unique in unique_codes]
-min_active_pct = min(active_pcts)
+active_pct = qinco_indices[:, :, 0].unique().numel() / codebook_size * 100
 
 print(f"QINCO ResidualFSQ MSE: {qinco_mse:.6f}")
 print(f"Input latent shape: {input_latent.shape}")
 print(f"QINCO output shape: {qinco_output.shape}")
 print(f"QINCO indices shape: {qinco_indices.shape}")
-print(f"Codebook utilization: {min_active_pct:.1f}%")
+print(f"Codebook utilization: {active_pct:.3f}%")
 
 # Test reconstruction from indices
 with torch.no_grad():

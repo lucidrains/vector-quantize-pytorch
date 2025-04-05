@@ -73,14 +73,15 @@ def train(model, train_loader, train_iterations=1000):
 
         opt.step()
         
-        # Calculate minimum codebook utilization
-        unique_indices = [idx.unique().numel() for idx in indices]
-        active_pcts = [idx_count / num_codes * 100 for idx_count in unique_indices]
-        min_active_pct = min(active_pcts)
+        # Calculate codebook utilization 
+        # For residual quantization, use first quantizer's indices (most significant) for measuring utilization
+        # This is consistent with how other residual quantizers report utilization
+        first_quantizer_indices = indices[:, :, :, 0]
+        active_pct = first_quantizer_indices.unique().numel() / num_codes * 100
         
         pbar.set_description(
             f"rec loss: {rec_loss.item():.3f} | "
-            + f"active %: {min_active_pct:.1f}"
+            + f"active %: {active_pct:.3f}"
         )
 
 
