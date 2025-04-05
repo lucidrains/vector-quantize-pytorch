@@ -1,6 +1,7 @@
 # Example demonstrating ResidualFSQ with QINCO (Quantized Implicit Neural Codebooks)
 # Based on "Residual Quantization with Implicit Neural Codebooks" https://arxiv.org/abs/2401.14732
 
+import math
 import torch
 import torch.nn.functional as F
 from vector_quantize_pytorch.residual_fsq import ResidualFSQ
@@ -41,10 +42,17 @@ with torch.no_grad():
 # Calculate MSE
 qinco_mse = F.mse_loss(qinco_output, input_latent).item()
 
+# Calculate minimum codebook utilization across quantizers
+unique_codes = [indices.unique().numel() for indices in qinco_indices.unbind(dim=-1)]
+codebook_size = math.prod(levels)
+active_pcts = [num_unique / codebook_size * 100 for num_unique in unique_codes]
+min_active_pct = min(active_pcts)
+
 print(f"QINCO ResidualFSQ MSE: {qinco_mse:.6f}")
 print(f"Input latent shape: {input_latent.shape}")
 print(f"QINCO output shape: {qinco_output.shape}")
 print(f"QINCO indices shape: {qinco_indices.shape}")
+print(f"Codebook utilization: {min_active_pct:.1f}%")
 
 # Test reconstruction from indices
 with torch.no_grad():

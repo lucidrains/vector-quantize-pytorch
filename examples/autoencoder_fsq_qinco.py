@@ -72,8 +72,15 @@ def train(model, train_loader, train_iterations=1000):
         rec_loss.backward()
 
         opt.step()
+        
+        # Calculate minimum codebook utilization
+        unique_indices = [idx.unique().numel() for idx in indices]
+        active_pcts = [idx_count / num_codes * 100 for idx_count in unique_indices]
+        min_active_pct = min(active_pcts)
+        
         pbar.set_description(
-            f"rec loss: {rec_loss.item():.3f}"
+            f"rec loss: {rec_loss.item():.3f} | "
+            + f"active %: {min_active_pct:.1f}"
         )
 
 
