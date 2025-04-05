@@ -10,7 +10,7 @@ torch.manual_seed(42)
 
 # Create a synthetic latent to be quantized
 batch_size = 4
-latent_dim = 4  # Following paper recommendations from section 4.1 and A.4.1
+latent_dim = 512 # Following paper recommendations from section 4.1 and A.4.1
 seq_length = 32
 input_latent = torch.randn(batch_size, seq_length, latent_dim)
 

@@ -218,8 +218,11 @@ class ResidualFSQ(Module):
             all_codes = []
             quantized_out = 0.
             
-            for codes, indices_layer, maybe_transform_mlp in zip(self.codebooks, indices.unbind(dim=-1), code_transform_mlps):
+            for layer_idx, (layer, codes, indices_layer, maybe_transform_mlp) in enumerate(zip(self.layers, self.codebooks, indices.unbind(dim=-1), code_transform_mlps)):
+                codebook_transform_fn = None
                 if exists(maybe_transform_mlp):
+                    # Create transformation function
+                    codebook_transform_fn = partial(maybe_transform_mlp, condition=quantized_out)
                     # Apply neural codebook transformation based on accumulated quantized value
                     codes = maybe_transform_mlp(codes, condition=quantized_out)
                     layer_codes = get_at('b n [c] d, b n -> b n d', codes, indices_layer)
@@ -325,10 +328,8 @@ class ResidualFSQ(Module):
                 if exists(maybe_mlp):
                     codebook_transform_fn = partial(maybe_mlp, condition = quantized_out)
                 
-                # FSQ quantization (modified to support codebook_transform_fn if needed)
-                # Note: FSQ doesn't have a direct way to pass in codebook_transform_fn like VQ does
-                # So we'll use the standard FSQ approach here and apply transformations in get_codes_from_indices
-                quantized, indices = layer(residual / scale)
+                # FSQ quantization with codebook transformation 
+                quantized, indices = layer(residual / scale, codebook_transform_fn=codebook_transform_fn)
                 quantized = quantized * scale
 
                 residual = residual - quantized.detach()

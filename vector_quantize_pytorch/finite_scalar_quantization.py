@@ -196,7 +196,7 @@ class FSQ(Module):
         codes_non_centered = (indices // self._basis) % self._levels
         return codes_non_centered
 
-    def indices_to_codes(self, indices):
+    def indices_to_codes(self, indices, codebook_transform_fn=None):
         """ Inverse of `codes_to_indices`. """
         assert exists(indices)
 
@@ -214,7 +214,7 @@ class FSQ(Module):
 
         return codes
 
-    def forward(self, z):
+    def forward(self, z, codebook_transform_fn=None):
         """
         einstein notation
         b - batch
