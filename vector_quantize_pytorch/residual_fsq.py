@@ -44,65 +44,8 @@ def get_maybe_sync_seed(device, max_size = 10_000):
 
     return rand_int.item()
 
-# the mlp for generating the neural implicit codebook
-# from Huijben et al. https://arxiv.org/abs/2401.14732
-
-class MLP(Module):
-    def __init__(
-        self,
-        dim,
-        dim_hidden = None,
-        depth = 4,             # they used 4 layers in the paper
-        l2norm_output = False
-    ):
-        super().__init__()
-        dim_hidden = default(dim_hidden, dim)
-
-        self.proj_in = nn.Linear(2 * dim, dim)
-
-        layers = ModuleList([])
-
-        for _ in range(depth):
-            layers.append(nn.Sequential(
-                nn.Linear(dim, dim_hidden),
-                nn.SiLU(),
-                nn.Linear(dim_hidden, dim)
-            ))
-
-        self.layers = layers
-        self.l2norm_output = l2norm_output
-
-    def forward(
-        self,
-        codes,
-        *,
-        condition
-    ):
-        one_headed = codes.ndim == 2
-
-        condition, _ = pack([condition], 'b * d') # handle condition with ndim 2 - (batch, dim)
-
-        if one_headed:
-            codes = rearrange(codes, 'c d -> 1 c d')
-
-        heads, num_codes, batch, seq_len = codes.shape[0], codes.shape[-2], condition.shape[0], condition.shape[-2]
-
-        codes = repeat(codes, 'h c d -> h b n c d', n = seq_len, b = batch)
-        condition = repeat(condition, 'b n d -> h b n c d', c = num_codes, h = heads)
-
-        x = torch.cat((condition, codes), dim = -1)
-        x = self.proj_in(x)
-
-        for layer in self.layers:
-            x = layer(x) + x
-
-        if self.l2norm_output:
-            x = F.normalize(x, dim = -1)
-
-        if not one_headed:
-            return x
-
-        return rearrange(x, '1 ... -> ...')
+# import the MLP for generating the neural implicit codebook from residual_vq
+from vector_quantize_pytorch.residual_vq import MLP
 
 # main class
 
