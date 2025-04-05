@@ -185,6 +185,10 @@ class FSQ(Module):
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
         codes = self._indices_to_codes(indices)
+        
+        # Apply codebook transform if provided (consistent with VectorQuantize)
+        if exists(codebook_transform_fn):
+            codes = codebook_transform_fn(codes)
 
         if self.keep_num_codebooks_dim:
             codes = rearrange(codes, '... c d -> ... (c d)')
