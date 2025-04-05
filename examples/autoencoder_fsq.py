@@ -14,7 +14,7 @@ from vector_quantize_pytorch import FSQ, Sequential
 
 lr = 3e-4
 train_iter = 1000
-levels = [8, 6, 5] # target size 2^8, actual size 240
+levels = [8, 4, 4] # target size 2^8, actual size 240
 num_codes = math.prod(levels)
 seed = 1234
 device = "cuda" if torch.cuda.is_available() else "cpu"

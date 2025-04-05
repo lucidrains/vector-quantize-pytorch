@@ -15,7 +15,7 @@ from vector_quantize_pytorch.residual_fsq import ResidualFSQ
 
 lr = 3e-4
 train_iter = 1000
-levels = [8, 6, 5]  # target size 2^8, actual size 240
+levels = [8, 8, 4]
 num_codes = math.prod(levels)
 seed = 1234
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -31,14 +31,14 @@ def QINCOFSQAutoEncoder(levels: list[int]):
         nn.Conv2d(32, len(levels), kernel_size=1),
         ResidualFSQ(
             levels=levels,
-            num_quantizers=4,
+            num_quantizers=2,
             dim=len(levels),
             quantize_dropout=True,
             quantize_dropout_cutoff_index=1,
             implicit_neural_codebook=True,  # Enable QINCO
             mlp_kwargs=dict(
                 dim_hidden=64,
-                depth=4
+                depth=1
             ),
             is_channel_first=True
         ),
@@ -73,9 +73,6 @@ def train(model, train_loader, train_iterations=1000):
 
         opt.step()
         
-        # Calculate codebook utilization 
-        # For residual quantization, use first quantizer's indices (most significant) for measuring utilization
-        # This is consistent with how other residual quantizers report utilization
         first_quantizer_indices = indices[:, :, :, 0]
         active_pct = first_quantizer_indices.unique().numel() / num_codes * 100
         
