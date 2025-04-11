@@ -974,6 +974,9 @@ class VectorQuantize(Module):
         # for variable lengthed sequences, whether to take care of masking out the padding to 0 (or return the original input)
         self.return_zeros_for_masked_padding = return_zeros_for_masked_padding
 
+        # whether to freeze the codebook, can be overridden on forward
+        self.freeze_codebook = freeze_codebook
+
     @property
     def codebook(self):
         codebook = self._codebook.embed
@@ -1042,11 +1045,15 @@ class VectorQuantize(Module):
         mask = None,
         lens = None,
         sample_codebook_temp = None,
-        freeze_codebook = False,
+        freeze_codebook = None,
         return_loss_breakdown = False,
         codebook_transform_fn: Callable | None = None
     ):
         orig_input, input_requires_grad = x, x.requires_grad
+
+        # freezing codebook
+
+        freeze_codebook = default(freeze_codebook, self.freeze_codebook)
 
         # handle masking, either passed in as `mask` or `lens`
 
