@@ -5,7 +5,7 @@ from collections import namedtuple
 
 import torch
 from torch.nn import Module
-from torch import nn, einsum, Tensor
+from torch import nn, einsum, is_tensor, Tensor
 import torch.nn.functional as F
 import torch.distributed as distributed
 from torch.optim import Optimizer
@@ -34,6 +34,12 @@ def l2norm(t, dim = -1,  eps = 1e-6):
 def safe_div(num, den, eps = 1e-6):
     return num / den.clamp(min = eps)
 
+def append_dims_to(t, ndims):
+    assert t.ndim <= ndims
+    append_ndims = ndims - t.ndim
+    shape = t.shape
+    return t.reshape(*shape, *((1,) * append_ndims))
+
 def Sequential(*modules):
     modules = [*filter(exists, modules)]
     if len(modules) == 0:
@@ -55,13 +61,17 @@ def log(t, eps = 1e-20):
 def entropy(prob, eps = 1e-5):
     return (-prob * log(prob, eps = eps)).sum(dim = -1)
 
-def ema_inplace(old, new, decay):
-    is_mps = str(old.device).startswith('mps:')
+def ema_inplace(old, new, decay, weight = None):
+    weight = default(weight, 1.)
 
-    if not is_mps:
-        old.lerp_(new, 1 - decay)
-    else:
-        old.mul_(decay).add_(new * (1 - decay))
+    if is_tensor(weight):
+        if weight.ndim == 1:
+            weight = rearrange(weight, 'c -> 1 c')
+
+        assert weight.ndim == 2 and weight.shape == old.shape[:2]
+        weight = append_dims_to(weight, old.ndim)
+
+    old.lerp_(new, (1. - decay) * weight)
 
 def pack_one(t, pattern):
     packed, ps = pack([t], pattern)
@@ -392,9 +402,9 @@ class EuclideanCodebook(Module):
 
         embed_sum = embed * rearrange(cluster_size, '... -> ... 1')
 
-        self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
+        self.update_ema()
         self.initted.data.copy_(torch.Tensor([True]))
 
     @torch.jit.ignore
@@ -500,7 +510,8 @@ class EuclideanCodebook(Module):
         sample_codebook_temp = None,
         mask = None,
         freeze_codebook = False,
-        codebook_transform_fn: Callable | None = None
+        codebook_transform_fn: Callable | None = None,
+        ema_update_weight: Tensor | Callable | None = None
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -585,15 +596,17 @@ class EuclideanCodebook(Module):
                 embed_onehot[~mask] = 0.
 
             cluster_size = embed_onehot.sum(dim = 1)
-
             self.all_reduce_fn(cluster_size)
-            ema_inplace(self.cluster_size.data, cluster_size, self.decay)
 
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             embed_sum = embed_sum.contiguous()
             self.all_reduce_fn(embed_sum)
 
-            ema_inplace(self.embed_avg.data, embed_sum, self.decay)
+            if callable(ema_update_weight):
+                ema_update_weight = ema_update_weight(embed_sum, cluster_size)
+
+            ema_inplace(self.cluster_size.data, cluster_size, self.decay, ema_update_weight)
+            ema_inplace(self.embed_avg.data, embed_sum, self.decay, ema_update_weight)
 
             if not self.manual_ema_update:
                 self.update_ema()
@@ -688,9 +701,9 @@ class CosineSimCodebook(Module):
 
         embed_sum = embed * rearrange(cluster_size, '... -> ... 1')
 
-        self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
+        self.update_ema()
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, batch_samples, batch_mask):
@@ -731,7 +744,8 @@ class CosineSimCodebook(Module):
         sample_codebook_temp = None,
         mask = None,
         freeze_codebook = False,
-        codebook_transform_fn: Callable | None = None
+        codebook_transform_fn: Callable | None = None,
+        ema_update_weight: Tensor | None = None
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -800,13 +814,15 @@ class CosineSimCodebook(Module):
             bins = embed_onehot.sum(dim = 1)
             self.all_reduce_fn(bins)
 
-            ema_inplace(self.cluster_size.data, bins, self.decay)
-
             embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
             embed_sum = embed_sum.contiguous()
             self.all_reduce_fn(embed_sum)
 
-            ema_inplace(self.embed_avg.data, embed_sum, self.decay)
+            if callable(ema_update_weight):
+                ema_update_weight = ema_update_weight(embed_sum, bins)
+
+            ema_inplace(self.cluster_size.data, bins, self.decay, ema_update_weight)
+            ema_inplace(self.embed_avg.data, embed_sum, self.decay, ema_update_weight)
 
             if not self.manual_ema_update:
                 self.update_ema()
@@ -1047,7 +1063,8 @@ class VectorQuantize(Module):
         sample_codebook_temp = None,
         freeze_codebook = None,
         return_loss_breakdown = False,
-        codebook_transform_fn: Callable | None = None
+        codebook_transform_fn: Callable | None = None,
+        ema_update_weight: Tensor | None = None
     ):
         orig_input, input_requires_grad = x, x.requires_grad
 
@@ -1103,7 +1120,8 @@ class VectorQuantize(Module):
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
             freeze_codebook = freeze_codebook,
-            codebook_transform_fn = codebook_transform_fn
+            codebook_transform_fn = codebook_transform_fn,
+            ema_update_weight = ema_update_weight
         )
 
         # quantize

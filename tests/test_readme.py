@@ -401,3 +401,34 @@ def test_residual_sim_vq():
 
     assert x.shape == quantized.shape
     assert torch.allclose(quantized, residual_sim_vq.get_output_from_indices(indices), atol = 1e-5)
+
+@pytest.mark.parametrize('use_cosine_sim', (False, True))
+def test_vq_custom_ema_update_weighting(
+    use_cosine_sim
+):
+    from vector_quantize_pytorch import VectorQuantize
+
+    vq = VectorQuantize(
+        dim = 256,
+        use_cosine_sim = use_cosine_sim,
+        codebook_dim = 128,
+        codebook_size = 8,
+        decay = 0.8,
+    )
+
+    x = torch.randn(16, 1024, 256)
+
+    codebook_before = vq.codebook.clone()
+
+    weights = torch.randint(0, 2, (8,)).float()
+    update_weights_callable = lambda embed_sum, cluster_size: weights
+
+    quantized, indices, loss = vq(x, ema_update_weight = update_weights_callable)
+
+    codebook_after = vq.codebook
+
+    did_update = weights.bool()
+    did_not_update = ~did_update
+
+    assert torch.allclose(codebook_before[did_not_update], codebook_after[did_not_update], atol = 1e-6)
+    assert (codebook_before[did_update] != codebook_after[did_update]).all()
