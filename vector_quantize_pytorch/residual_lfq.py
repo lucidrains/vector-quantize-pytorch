@@ -152,7 +152,7 @@ class ResidualLFQ(Module):
         all_losses = []
         all_indices = []
 
-        should_quantize_dropout = self.training and self.quantize_dropout
+        should_quantize_dropout = self.training and self.quantize_dropout and torch.is_grad_enabled()
 
         # sample a layer index at which to dropout further residual quantization
         # also prepare null indices and loss
