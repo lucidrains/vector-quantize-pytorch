@@ -39,7 +39,7 @@ def is_distributed():
 def get_maybe_sync_seed(device, max_size = 10_000):
     rand_int = torch.randint(0, max_size, (), device = device)
 
-    if is_distributed():
+    if is_distributed() and torch.is_grad_enabled():
         dist.all_reduce(rand_int)
 
     return rand_int.item()
