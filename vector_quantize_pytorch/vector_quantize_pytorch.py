@@ -532,16 +532,14 @@ class EuclideanCodebook(Module):
         if self.affine_param:
             self.update_affine(flatten, self.embed, mask = mask)
 
-        # affine params
+        # get maybe learnable codes
+        embed = self.embed if self.learnable_codebook else self.embed.detach()
 
+        # affine params
         if self.affine_param:
             codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
             embed = (embed - self.codebook_mean) * (batch_std / codebook_std) + self.batch_mean
-
-        # get maybe learnable codes
-
-        embed = self.embed if self.learnable_codebook else self.embed.detach()
 
         # handle maybe implicit neural codebook
         # and calculate distance
