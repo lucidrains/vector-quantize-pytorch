@@ -61,7 +61,7 @@ def floor_ste(z):
 class FSQ(Module):
     def __init__(
         self,
-        levels: list[int],
+        levels: list[int] | tuple[int, ...],
         dim: int | None = None,
         num_codebooks = 1,
         keep_num_codebooks_dim: bool | None = None,
@@ -75,6 +75,9 @@ class FSQ(Module):
         noise_dropout = 0.,
     ):
         super().__init__()
+
+        if isinstance(levels, tuple):
+            levels = list(levels)
 
         _levels = tensor(levels, dtype = int32)
         self.register_buffer('_levels', _levels, persistent = False)
