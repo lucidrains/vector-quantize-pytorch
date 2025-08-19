@@ -434,3 +434,30 @@ def test_vq_custom_ema_update_weighting(
 
     assert torch.allclose(codebook_before[did_not_update], codebook_after[did_not_update], atol = 1e-6)
     assert (codebook_before[did_update] != codebook_after[did_update]).all()
+
+def test_accum_ema_update():
+    from vector_quantize_pytorch import VectorQuantize
+
+    vq = VectorQuantize(
+        dim = 256,
+        use_cosine_sim = True,
+        codebook_dim = 128,
+        codebook_size = 8,        # codebook size
+        decay = 0.8,              # the exponential moving average decay, lower means the dictionary will change faster
+        commitment_weight = 1.,   # the weight on the commitment loss
+    )
+
+    x = torch.randn(16, 1024, 256)
+
+    codebook_before = vq.codebook.clone()
+
+    vq.train()
+
+    _ = vq(x, accum_ema_update = True)
+    _ = vq(x, accum_ema_update = True)
+
+    assert torch.allclose(codebook_before, vq.codebook, atol = 1e-6)
+
+    _ = vq(x)
+
+    assert not torch.allclose(codebook_before, vq.codebook, atol = 1e-6)

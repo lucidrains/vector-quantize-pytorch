@@ -61,7 +61,22 @@ def log(t, eps = 1e-20):
 def entropy(prob, eps = 1e-5):
     return (-prob * log(prob, eps = eps)).sum(dim = -1)
 
+def accum_grad_(t, grad):
+    if exists(t.grad):
+        t.grad.add_(grad)
+    else:
+        t.grad = grad.clone().detach()
+
 def ema_inplace(old, new, decay, weight = None):
+
+    # if old.grad is populated, add it to new and set it to None
+
+    if exists(old.grad):
+        new.add_(old.grad)
+        old.grad = None
+
+    # take care of custom weighting
+
     weight = default(weight, 1.)
 
     if is_tensor(weight):
@@ -71,7 +86,7 @@ def ema_inplace(old, new, decay, weight = None):
         assert weight.ndim == 2 and weight.shape == old.shape[:2]
         weight = append_dims_to(weight, old.ndim)
 
-    old.lerp_(new, (1. - decay) * weight)
+    old.data.lerp_(new, (1. - decay) * weight)
 
 def pack_one(t, pattern):
     packed, ps = pack([t], pattern)
@@ -511,7 +526,8 @@ class EuclideanCodebook(Module):
         mask = None,
         freeze_codebook = False,
         codebook_transform_fn: Callable | None = None,
-        ema_update_weight: Tensor | Callable | None = None
+        ema_update_weight: Tensor | Callable | None = None,
+        accum_ema_update = False
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -603,12 +619,16 @@ class EuclideanCodebook(Module):
             if callable(ema_update_weight):
                 ema_update_weight = ema_update_weight(embed_sum, cluster_size)
 
-            ema_inplace(self.cluster_size.data, cluster_size, self.decay, ema_update_weight)
-            ema_inplace(self.embed_avg.data, embed_sum, self.decay, ema_update_weight)
+            if accum_ema_update:
+                accum_grad_(self.cluster_size, cluster_size)
+                accum_grad_(self.embed_avg, embed_sum)
+            else:
+                ema_inplace(self.cluster_size, cluster_size, self.decay, ema_update_weight)
+                ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
 
-            if not self.manual_ema_update:
-                self.update_ema()
-                self.expire_codes_(x)
+                if not self.manual_ema_update:
+                    self.update_ema()
+                    self.expire_codes_(x)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -743,7 +763,8 @@ class CosineSimCodebook(Module):
         mask = None,
         freeze_codebook = False,
         codebook_transform_fn: Callable | None = None,
-        ema_update_weight: Tensor | None = None
+        ema_update_weight: Tensor | None = None,
+        accum_ema_update = False
     ):
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
@@ -819,12 +840,17 @@ class CosineSimCodebook(Module):
             if callable(ema_update_weight):
                 ema_update_weight = ema_update_weight(embed_sum, bins)
 
-            ema_inplace(self.cluster_size.data, bins, self.decay, ema_update_weight)
-            ema_inplace(self.embed_avg.data, embed_sum, self.decay, ema_update_weight)
+            if accum_ema_update:
+                accum_grad_(self.cluster_size, bins)
+                accum_grad_(self.embed_avg, embed_sum)
+            else:
 
-            if not self.manual_ema_update:
-                self.update_ema()
-                self.expire_codes_(x)
+                ema_inplace(self.cluster_size, bins, self.decay, ema_update_weight)
+                ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
+
+                if not self.manual_ema_update:
+                    self.update_ema()
+                    self.expire_codes_(x)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -1062,7 +1088,8 @@ class VectorQuantize(Module):
         freeze_codebook = None,
         return_loss_breakdown = False,
         codebook_transform_fn: Callable | None = None,
-        ema_update_weight: Tensor | None = None
+        ema_update_weight: Tensor | None = None,
+        accum_ema_update = False
     ):
         orig_input, input_requires_grad = x, x.requires_grad
 
@@ -1119,7 +1146,8 @@ class VectorQuantize(Module):
             mask = mask,
             freeze_codebook = freeze_codebook,
             codebook_transform_fn = codebook_transform_fn,
-            ema_update_weight = ema_update_weight
+            ema_update_weight = ema_update_weight,
+            accum_ema_update = accum_ema_update
         )
 
         # quantize
