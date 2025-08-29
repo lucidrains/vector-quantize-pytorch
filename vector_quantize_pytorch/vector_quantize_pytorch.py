@@ -1063,6 +1063,19 @@ class VectorQuantize(Module):
         if not exists(self.in_place_codebook_optimizer):
             return
 
+        # handle ddp, thanks to @gdoras
+
+        if self._codebook.use_ddp:
+
+            for param in self._codebook.parameters():
+                if not exists(param.grad):
+                    continue
+
+                distributed.all_reduce(param.grad)
+                param.grad /= distributed.get_world_size()
+
+        # optimizer step
+
         self.in_place_codebook_optimizer.step()
         self.in_place_codebook_optimizer.zero_grad()
 
