@@ -1263,7 +1263,7 @@ class VectorQuantize(Module):
             # calculate codebook diversity loss (negative of entropy) if needed
 
             if self.has_codebook_diversity_loss:
-                prob = (-distances * self.codebook_diversity_temperature).softmax(dim = -1)
+                prob = (distances * self.codebook_diversity_temperature).softmax(dim = -1)
                 avg_prob = reduce(prob, '... n l -> n l', 'mean')
                 codebook_diversity_loss = -entropy(avg_prob).mean()
 
