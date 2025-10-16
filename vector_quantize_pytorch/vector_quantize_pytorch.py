@@ -273,11 +273,13 @@ def efficient_rotation_trick_transform(u, q, e):
     e = rearrange(e, 'b d -> b 1 d')
     w = l2norm(u + q, dim = 1).detach()
 
-    return (
+    out = (
         e -
         2 * (e @ rearrange(w, 'b d -> b d 1') @ rearrange(w, 'b d -> b 1 d')) +
         2 * (e @ rearrange(u, 'b d -> b d 1').detach() @ rearrange(q, 'b d -> b 1 d').detach())
     )
+
+    return rearrange(out, '... 1 d -> ... d')
 
 def rotate_to(src, tgt):
     # rotation trick STE (https://arxiv.org/abs/2410.06424) to get gradients through VQ layer.
@@ -291,7 +293,7 @@ def rotate_to(src, tgt):
         safe_div(src, norm_src),
         safe_div(tgt, norm_tgt),
         src
-    ).squeeze()
+    )
 
     rotated = rotated_tgt * safe_div(norm_tgt, norm_src).detach()
 
@@ -896,7 +898,7 @@ class VectorQuantize(Module):
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
-        rotation_trick = True,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424 by @cfifty
+        rotation_trick = None,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424 by @cfifty
         sync_codebook = None,
         sync_affine_param = False,
         ema_update = True,
@@ -911,6 +913,8 @@ class VectorQuantize(Module):
         return_zeros_for_masked_padding = True
     ):
         super().__init__()
+        rotation_trick = default(rotation_trick, dim > 1) # only use rotation trick if feature dimension greater than 1
+
         self.dim = dim
         self.heads = heads
         self.separate_codebook_per_head = separate_codebook_per_head
