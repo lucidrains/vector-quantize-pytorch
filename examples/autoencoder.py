@@ -75,8 +75,9 @@ torch.random.manual_seed(seed)
 
 model = SimpleVQAutoEncoder(
     codebook_size = num_codes,
-    rotation_trick = True,
-    straight_through = False
+    rotation_trick = False,
+    straight_through = False,
+    directional_reparam = True
 ).to(device)
 
 opt = torch.optim.AdamW(model.parameters(), lr=lr)
