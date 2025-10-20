@@ -779,3 +779,15 @@ assert loss.item() >= 0
     url     = {https://api.semanticscholar.org/CorpusID:274423406}
 }
 ```
+
+```bibtex
+@misc{vali2025diveqdifferentiablevectorquantization,
+    title   = {DiVeQ: Differentiable Vector Quantization Using the Reparameterization Trick}, 
+    author  = {Mohammad Hassan Vali and Tom Bäckström and Arno Solin},
+    year    = {2025},
+    eprint  = {2509.26469},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2509.26469}, 
+}
+```

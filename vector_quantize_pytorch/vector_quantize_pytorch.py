@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import sqrt
 from functools import partial, cache
 from collections import namedtuple
 
@@ -27,6 +28,9 @@ def noop(*args, **kwargs):
 
 def identity(t):
     return t
+
+def at_most_one_of(*bools):
+    return sum([*map(int, bools)]) <= 1
 
 def l2norm(t, dim = -1,  eps = 1e-6):
     return F.normalize(t, p = 2, dim = dim, eps = eps)
@@ -264,6 +268,11 @@ def kmeans(
 
     return means, bins
 
+# straight through
+
+def straight_through(src, tgt):
+    return src + (tgt - src).detach()
+
 # rotation trick related
 
 def efficient_rotation_trick_transform(u, q, e):
@@ -298,6 +307,18 @@ def rotate_to(src, tgt):
     rotated = rotated_tgt * safe_div(norm_tgt, norm_src).detach()
 
     return inverse(rotated)
+
+# directional reparam related
+# figure 1. https://openreview.net/forum?id=KRVnpTbx7R
+
+def directional_reparam(src, tgt, noise_variance = 5e-3):
+    error_dir = tgt - src
+    error_dir_norm = error_dir.norm(dim = -1, keepdim = True)
+
+    noised_dir = error_dir + sqrt(noise_variance) * torch.randn_like(error_dir)
+    unit_noised_dir = l2norm(noised_dir)
+
+    return src + unit_noised_dir * error_dir_norm
 
 # distributed helpers
 
@@ -898,12 +919,14 @@ class VectorQuantize(Module):
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
-        rotation_trick = None,  # Propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424 by @cfifty
+        rotation_trick = None,       # propagate grads through VQ layer w/ rotation trick: https://arxiv.org/abs/2410.06424 by @cfifty
+        directional_reparam = False, # add the difference between the nearest code and input vector, with some noise on the direction
+        directional_reparam_variance = 5e-3,
         sync_codebook = None,
         sync_affine_param = False,
-        ema_update = True,
+        ema_update = None,
         manual_ema_update = False,
-        learnable_codebook = False,
+        learnable_codebook = None,
         in_place_codebook_optimizer: Callable[..., Optimizer] = None, # Optimizer used to update the codebook embedding if using learnable_codebook
         manual_in_place_optimizer_update = False,
         affine_param = False,
@@ -913,7 +936,14 @@ class VectorQuantize(Module):
         return_zeros_for_masked_padding = True
     ):
         super().__init__()
-        rotation_trick = default(rotation_trick, dim > 1) # only use rotation trick if feature dimension greater than 1
+
+        # defaults
+
+        ema_update = default(ema_update, not directional_reparam)
+        learnable_codebook = default(learnable_codebook, directional_reparam)
+        rotation_trick = default(rotation_trick, not directional_reparam and dim > 1) # only use rotation trick if feature dimension greater than 1
+
+        # basic variables
 
         self.dim = dim
         self.heads = heads
@@ -935,7 +965,7 @@ class VectorQuantize(Module):
 
         self.eps = eps
 
-        self.has_commitment_loss = commitment_weight > 0.
+        self.has_commitment_loss = commitment_weight > 0. and not directional_reparam
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
@@ -953,8 +983,11 @@ class VectorQuantize(Module):
         self.codebook_diversity_temperature = codebook_diversity_temperature
         self.codebook_diversity_loss_weight = codebook_diversity_loss_weight
 
-        assert not (straight_through and rotation_trick)
+        assert at_most_one_of(straight_through, rotation_trick, directional_reparam)
         self.rotation_trick = rotation_trick
+
+        self.directional_reparam = directional_reparam
+        self.directional_reparam_variance = directional_reparam_variance
 
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
 
@@ -1213,9 +1246,11 @@ class VectorQuantize(Module):
             if input_requires_grad:
                 if self.rotation_trick:
                     quantize = rotate_to(x, quantize)
+                elif self.directional_reparam:
+                    quantize = directional_reparam(x, quantize, self.directional_reparam_variance)
                 else:
                     # standard STE to get gradients through VQ layer.
-                    quantize = x + (quantize - x).detach()
+                    quantize = straight_through(x, quantize)
 
             if self.sync_update_v > 0.:
                 # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf

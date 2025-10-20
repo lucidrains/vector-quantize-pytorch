@@ -224,6 +224,28 @@ def test_tiger():
 
     assert torch.allclose(quantized, quantized_out, atol = 1e-5)
 
+def test_directional_reparam():
+    from vector_quantize_pytorch import VectorQuantize, ResidualVQ
+
+    vq = VectorQuantize(
+        dim = 256,
+        codebook_size = 512,                # codebook size
+        directional_reparam = True
+    )
+
+    x = torch.randn(1, 1024, 256).requires_grad_()
+
+    quantized, indices, _ = vq(x)
+
+    rq = ResidualVQ(
+        dim = 256,
+        num_quantizers = 8,
+        codebook_size = 128,
+        directional_reparam = True
+    )
+
+    quantized, indices, _ = rq(x)
+
 @pytest.mark.parametrize('preserve_symmetry', (True, False))
 def test_fsq(
     preserve_symmetry
