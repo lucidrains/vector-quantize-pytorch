@@ -572,7 +572,10 @@ class EuclideanCodebook(Module):
             self.update_affine(flatten, self.embed, mask = mask)
 
         # get maybe learnable codes
+
         embed = self.embed if self.learnable_codebook else self.embed.detach()
+
+        embed = embed.to(dtype)
 
         # affine params
         if self.affine_param:
@@ -807,6 +810,8 @@ class CosineSimCodebook(Module):
         self.init_embed_(flatten, mask = mask)
 
         embed = self.embed if self.learnable_codebook else self.embed.detach()
+
+        embed = embed.to(dtype)
 
         # handle maybe implicit neural codebook
         # and compute cosine sim distance
