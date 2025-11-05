@@ -791,3 +791,16 @@ assert loss.item() >= 0
     url     = {https://arxiv.org/abs/2509.26469}, 
 }
 ```
+
+```bibtex
+@misc{fleuret2025freetransformer,
+    title   = {The Free Transformer}, 
+    author  = {François Fleuret},
+    year    = {2025},
+    eprint  = {2510.17558},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2510.17558}, 
+}
+```
+
