@@ -46,7 +46,8 @@ class BinaryMapper(Module):
     def __init__(
         self,
         bits = 1,
-        kl_loss_threshold = NAT # 1 bit
+        kl_loss_threshold = NAT, # 1 bit
+        deterministic_on_eval = False
     ):
         super().__init__()
 
@@ -64,14 +65,21 @@ class BinaryMapper(Module):
         self.kl_loss_threshold = kl_loss_threshold
         self.register_buffer('zero', tensor(0.), persistent = False)
 
+        # eval behavior
+
+        self.deterministic_on_eval = deterministic_on_eval
+
     def forward(
         self,
         logits,
         temperature = 1.,
         straight_through = None,
         calc_aux_loss = None,
-        return_indices = False
+        deterministic = None,
+        return_indices = False,
     ):
+        deterministic = default(deterministic, self.deterministic_on_eval and not self.training)
+
         straight_through = default(straight_through, self.training)
         calc_aux_loss = default(calc_aux_loss, self.training)
 
@@ -87,7 +95,10 @@ class BinaryMapper(Module):
 
         # sampling
 
-        sampled_bits = (torch.rand_like(logits) <= prob_for_sample).long()
+        compare_target = torch.rand_like(logits) if not deterministic else 0.5
+
+        sampled_bits = (compare_target <= prob_for_sample).long()
+
         indices = (self.power_two * sampled_bits).sum(dim = -1)
 
         one_hot = F.one_hot(indices, self.num_codes).float()
@@ -143,3 +154,8 @@ if __name__ == '__main__':
     assert sparse_one_hot.shape == (3, 4, 2 ** 8)
     assert indices.shape == (3, 4)
     assert aux_loss.numel() == 1
+
+    binary_mapper.eval()
+    sparse_one_hot1, _ = binary_mapper(logits, deterministic = True)
+    sparse_one_hot2, _ = binary_mapper(logits, deterministic = True)
+    assert torch.allclose(sparse_one_hot1, sparse_one_hot2)
