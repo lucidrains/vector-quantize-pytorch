@@ -95,9 +95,10 @@ class BinaryMapper(Module):
 
         # sampling
 
-        compare_target = torch.rand_like(logits) if not deterministic else 0.5
-
-        sampled_bits = (compare_target <= prob_for_sample).long()
+        if not deterministic:
+            sampled_bits = prob_for_sample.bernoulli().long()
+        else:
+            sampled_bits = (prob_for_sample > 0.5).long()
 
         indices = (self.power_two * sampled_bits).sum(dim = -1)
 
