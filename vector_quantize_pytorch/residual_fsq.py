@@ -1,11 +1,11 @@
+from __future__ import annotations
+
 import random
 from math import ceil
 from functools import partial
 
-from typing import List
-
 import torch
-from torch import nn
+from torch import nn, tensor
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 from torch.amp import autocast
@@ -52,14 +52,15 @@ class ResidualFSQ(Module):
     def __init__(
         self,
         *,
-        levels: List[int],
+        levels: list[int],
         num_quantizers,
         dim = None,
         is_channel_first = False,
         quantize_dropout = False,
         quantize_dropout_cutoff_index = 0,
         quantize_dropout_multiple_of = 1,
-        soft_clamp_input_value = None,
+        soft_clamp_input_value: float | list[float] | Tensor | None = None,
+        bound_hard_clamp = True,
         **kwargs
     ):
         super().__init__()
@@ -74,25 +75,24 @@ class ResidualFSQ(Module):
         self.is_channel_first = is_channel_first
         self.num_quantizers = num_quantizers
 
-        # soft clamping the input value
-
-        self.soft_clamp_input_value = soft_clamp_input_value
-
         # layers
 
         self.levels = levels
         self.layers = nn.ModuleList([])
 
-        levels_tensor = torch.Tensor(levels)
+        levels_tensor = tensor(levels)
+        assert (levels_tensor > 1).all()
 
         scales = []
 
         for ind in range(num_quantizers):
-            scales.append((levels_tensor - 1) ** -ind)
+            scales.append(levels_tensor.float() ** -ind)
 
             fsq = FSQ(
                 levels = levels,
                 dim = codebook_dim,
+                preserve_symmetry = True,
+                bound_hard_clamp = bound_hard_clamp,
                 **kwargs
             )
 
@@ -110,6 +110,17 @@ class ResidualFSQ(Module):
 
         self.quantize_dropout_cutoff_index = quantize_dropout_cutoff_index
         self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
+
+        # soft clamping the input value
+
+        if bound_hard_clamp:
+            assert not exists(soft_clamp_input_value)
+            soft_clamp_input_value = 1 + (1 / (levels_tensor - 1))
+
+        if isinstance(soft_clamp_input_value, (list, float)):
+            soft_clamp_input_value = tensor(soft_clamp_input_value)
+
+        self.register_buffer('soft_clamp_input_value', soft_clamp_input_value, persistent = False)
 
     @property
     def codebooks(self):

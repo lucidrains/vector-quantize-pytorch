@@ -11,7 +11,7 @@ from typing import List, Tuple
 import torch
 import torch.nn as nn
 from torch.nn import Module
-from torch import tensor, Tensor, int32
+from torch import tensor, Tensor, int32, tanh, atanh, clamp
 from torch.amp import autocast
 
 import einx
@@ -29,6 +29,9 @@ def default(*args):
         if exists(arg):
             return arg
     return None
+
+def identity(t):
+    return t
 
 def maybe(fn):
     @wraps(fn)
@@ -73,6 +76,7 @@ class FSQ(Module):
         force_quantization_f32 = True,
         preserve_symmetry = False,
         noise_dropout = 0.,
+        bound_hard_clamp = False # for residual fsq, if input is pre-softclamped to the right range
     ):
         super().__init__()
 
@@ -121,22 +125,31 @@ class FSQ(Module):
         self.allowed_dtypes = allowed_dtypes
         self.force_quantization_f32 = force_quantization_f32
 
-    def bound(self, z, eps = 1e-3):
+        # allow for a hard clamp
+
+        self.bound_hard_clamp = bound_hard_clamp
+
+    def bound(self, z, eps = 1e-3, hard_clamp = False):
         """ Bound `z`, an array of shape (..., d). """
+        maybe_tanh = tanh if not hard_clamp else partial(clamp, min = -1., max = 1.)
+        maybe_atanh = atanh if not hard_clamp else identity
+
         half_l = (self._levels - 1) * (1 + eps) / 2
         offset = torch.where(self._levels % 2 == 0, 0.5, 0.0)
-        shift = (offset / half_l).atanh()
-        bounded_z = (z + shift).tanh() * half_l - offset
+        shift = maybe_atanh(offset / half_l)
+        bounded_z = maybe_tanh(z + shift) * half_l - offset
         half_width = self._levels // 2
         return round_ste(bounded_z) / half_width
 
     # symmetry-preserving and noise-approximated quantization, section 3.2 in https://arxiv.org/abs/2411.19842
     
-    def symmetry_preserving_bound(self, z):
+    def symmetry_preserving_bound(self, z, hard_clamp = False):
         """ QL(x) = 2 / (L - 1) * [(L - 1) * (tanh(x) + 1) / 2 + 0.5] - 1 """
+        maybe_tanh = tanh if not hard_clamp else partial(clamp, min = -1., max = 1.)
+
         levels_minus_1 = (self._levels - 1)
         scale = 2. / levels_minus_1
-        bracket = (levels_minus_1 * (z.tanh() + 1) / 2.) + 0.5
+        bracket = (levels_minus_1 * (maybe_tanh(z) + 1) / 2.) + 0.5
         bracket = floor_ste(bracket)
         return scale * bracket - 1.
 
@@ -146,7 +159,7 @@ class FSQ(Module):
         shape, device, noise_dropout, preserve_symmetry = z.shape[0], z.device, self.noise_dropout, self.preserve_symmetry
         bound_fn = self.symmetry_preserving_bound if preserve_symmetry else self.bound
 
-        bounded_z = bound_fn(z)
+        bounded_z = bound_fn(z, hard_clamp = self.bound_hard_clamp)
 
         # determine where to add a random offset elementwise
         # if using noise dropout
