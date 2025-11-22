@@ -88,7 +88,7 @@ class ResidualFSQ(Module):
         scales = []
 
         for ind in range(num_quantizers):
-            scales.append((levels_tensor - 1) ** -ind)
+            scales.append(levels_tensor ** -ind)
 
             fsq = FSQ(
                 levels = levels,
