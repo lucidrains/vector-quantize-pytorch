@@ -247,13 +247,15 @@ def test_directional_reparam():
     quantized, indices, _ = rq(x)
 
 @pytest.mark.parametrize('preserve_symmetry', (True, False))
+@pytest.mark.parametrize('bound_hard_clamp', (True, False))
 def test_fsq(
-    preserve_symmetry
+    preserve_symmetry,
+    bound_hard_clamp
 ):
     from vector_quantize_pytorch import FSQ
 
     levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
-    quantizer = FSQ(levels, preserve_symmetry = preserve_symmetry)
+    quantizer = FSQ(levels, preserve_symmetry = preserve_symmetry, bound_hard_clamp = bound_hard_clamp)
 
     x = torch.randn(1, 1024, 4) # 4 since there are 4 levels
     xhat, indices = quantizer(x)
