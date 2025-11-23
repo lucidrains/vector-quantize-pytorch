@@ -119,7 +119,8 @@ def gumbel_sample(
     stochastic = False,
     straight_through = False,
     dim = -1,
-    training = True
+    training = True,
+    topk = None
 ):
     dtype, size = logits.dtype, logits.shape[dim]
 
@@ -128,7 +129,11 @@ def gumbel_sample(
     else:
         sampling_logits = logits
 
-    ind = sampling_logits.argmax(dim = dim)
+    if exists(topk):
+        ind = sampling_logits.topk(topk, dim = dim).indices
+    else:
+        ind = sampling_logits.argmax(dim = dim)
+
     one_hot = F.one_hot(ind, size).type(dtype)
 
     if not straight_through or temperature <= 0. or not training:
@@ -629,7 +634,8 @@ class Codebook(Module):
         codebook_transform_fn: Callable | None = None,
         ema_update_weight: Tensor | Callable | None = None,
         accum_ema_update = False,
-        ema_update = None
+        ema_update = None,
+        topk = None
     ):
         ema_update = default(ema_update, self.ema_update)
 
@@ -686,20 +692,26 @@ class Codebook(Module):
 
         # sample or argmax depending on temperature
 
-        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
+        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, topk = topk, temperature = sample_codebook_temp, training = self.training)
 
-        embed_ind = unpack_one(embed_ind, 'h *')
+        if exists(topk):
+            embed_ind = unpack_one(embed_ind, 'h * k')
+        else:
+            embed_ind = unpack_one(embed_ind, 'h *')
 
         if exists(codebook_transform_fn):
             transformed_embed = unpack_one(transformed_embed, 'h * c d')
 
         if self.training:
-            unpacked_onehot = unpack_one(embed_onehot, 'h * c')
+            if exists(topk):
+                unpacked_onehot = unpack_one(embed_onehot, 'h * k c')
+            else:
+                unpacked_onehot = unpack_one(embed_onehot, 'h * c')
 
             if exists(codebook_transform_fn):
-                quantize = einsum('h b n c, h b n c d -> h b n d', unpacked_onehot, transformed_embed)
+                quantize = einsum('h b n ... c, h b n c d -> h b n ... d', unpacked_onehot, transformed_embed)
             else:
-                quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
+                quantize = einsum('h b n ... c, h c d -> h b n ... d', unpacked_onehot, embed)
 
         else:
             if exists(codebook_transform_fn):
@@ -1007,6 +1019,7 @@ class VectorQuantize(Module):
         indices = None,
         mask = None,
         lens = None,
+        topk = None,
         sample_codebook_temp = None,
         freeze_codebook = None,
         return_loss_breakdown = False,
@@ -1072,7 +1085,8 @@ class VectorQuantize(Module):
             codebook_transform_fn = codebook_transform_fn,
             ema_update_weight = ema_update_weight,
             accum_ema_update = accum_ema_update,
-            ema_update = ema_update
+            ema_update = ema_update and not exists(topk),
+            topk = topk
         )
 
         # quantize
@@ -1196,9 +1210,19 @@ class VectorQuantize(Module):
 
                     commit_loss = calculate_ce_loss(embed_ind)
                 else:
-                    if exists(mask):
+                    if exists(topk):
+                        # handle special case when returning topk
+
+                        repeated_input = repeat(orig_input, '... d -> ... k d', k = topk)
+                        commit_loss = F.mse_loss(commit_quantize, repeated_input, reduction = 'none')
+                        commit_loss = reduce(commit_loss, '... k d -> ... k', 'mean')
+
+                        if exists(mask):
+                            commit_loss = einx.where('..., ... k, -> ... k', mask, commit_loss, 0.)
+
+                    elif exists(mask):
                         # with variable lengthed sequences
-                        commit_loss = F.mse_loss(commit_quantize, x, reduction = 'none')
+                        commit_loss = F.mse_loss(commit_quantize, orig_input, reduction = 'none')
 
                         loss_mask = mask
                         if is_multiheaded:
@@ -1261,7 +1285,7 @@ class VectorQuantize(Module):
                 masked_out_value = torch.zeros_like(orig_input)
 
             quantize = einx.where(
-                'b n, b n d, b n d -> b n d',
+                'b n, b n ... d, b n d -> b n ... d',
                 mask,
                 quantize,
                 masked_out_value
