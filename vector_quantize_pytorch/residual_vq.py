@@ -545,13 +545,19 @@ class ResidualVQ(Module):
 
             # handle updating ema
 
-            if self.vq_is_ema_updating:
+            if self.training:
                 for vq, layer_input, indices in zip(self.layers, all_residuals.unbind(dim = -2), all_indices.unbind(dim = -1)): # in the case of quantize dropout, zip will terminate with the shorter sequence, which should be all_residuals
-                    vq.update_ema_indices(layer_input, indices, mask = mask)
+
+                    if self.vq_is_ema_updating:
+                        vq.update_ema_indices(layer_input, indices, mask = mask)
+
+                    batch_samples = layer_input[mask] if exists(mask) else layer_input
+                    vq.expire_codes_(batch_samples)
 
         # if shared codebook, update ema only at end
 
-        if self.training and self.shared_codebook and not is_beam_search:
+        if self.training and self.shared_codebook:
+
             shared_layer = first(self.layers)
             shared_layer._codebook.update_ema()
             shared_layer.update_in_place_optimizer()
