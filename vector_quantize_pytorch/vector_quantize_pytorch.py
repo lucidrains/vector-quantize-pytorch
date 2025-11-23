@@ -556,6 +556,69 @@ class Codebook(Module):
 
         self.embed.data.copy_(embed_normalized)
 
+    def update_ema_part(
+        self,
+        flatten,
+        embed_onehot,
+        mask = None,
+        ema_update_weight: Tensor | Callable | None = None,
+        accum_ema_update = False
+    ):
+        if self.affine_param:
+            codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
+            batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
+            flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
+
+        if exists(mask):
+            embed_onehot[~mask] = 0.
+
+        cluster_size = embed_onehot.sum(dim = 1)
+        self.all_reduce_fn(cluster_size)
+
+        embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
+        embed_sum = embed_sum.contiguous()
+        self.all_reduce_fn(embed_sum)
+
+        if callable(ema_update_weight):
+            ema_update_weight = ema_update_weight(embed_sum, cluster_size)
+
+        if accum_ema_update:
+            accum_grad_(self.cluster_size, cluster_size)
+            accum_grad_(self.embed_avg, embed_sum)
+        else:
+            ema_inplace(self.cluster_size, cluster_size, self.decay, ema_update_weight)
+            ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
+
+            if not self.manual_ema_update:
+                self.update_ema()
+                self.expire_codes_(flatten)
+
+    def update_ema_indices(
+        self,
+        x,
+        embed_ind,
+        mask = None,
+        ema_update_weight: Tensor | Callable | None = None,
+        accum_ema_update = False
+    ):
+        needs_codebook_dim = x.ndim < 4
+        x = x.float()
+
+        if needs_codebook_dim:
+            x = rearrange(x, '... -> 1 ...')
+
+        dtype = x.dtype
+        flatten, unpack_one = pack_one(x, 'h * d')
+
+        if exists(mask):
+            mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
+
+        embed_ind, _ = pack([embed_ind], 'h *')
+        embed_ind = embed_ind.masked_fill(embed_ind == -1, 0)
+        embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
+
+        self.update_ema_part(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
+
     @autocast('cuda', enabled = False)
     def forward(
         self,
@@ -565,8 +628,11 @@ class Codebook(Module):
         freeze_codebook = False,
         codebook_transform_fn: Callable | None = None,
         ema_update_weight: Tensor | Callable | None = None,
-        accum_ema_update = False
+        accum_ema_update = False,
+        ema_update = None
     ):
+        ema_update = default(ema_update, self.ema_update)
+
         needs_codebook_dim = x.ndim < 4
         sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
 
@@ -650,34 +716,8 @@ class Codebook(Module):
                 repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
                 quantize = repeated_embed.gather(-2, repeated_embed_ind)
 
-        if self.training and self.ema_update and not freeze_codebook:
-
-            if self.affine_param:
-                flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
-
-            if exists(mask):
-                embed_onehot[~mask] = 0.
-
-            cluster_size = embed_onehot.sum(dim = 1)
-            self.all_reduce_fn(cluster_size)
-
-            embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
-            embed_sum = embed_sum.contiguous()
-            self.all_reduce_fn(embed_sum)
-
-            if callable(ema_update_weight):
-                ema_update_weight = ema_update_weight(embed_sum, cluster_size)
-
-            if accum_ema_update:
-                accum_grad_(self.cluster_size, cluster_size)
-                accum_grad_(self.embed_avg, embed_sum)
-            else:
-                ema_inplace(self.cluster_size, cluster_size, self.decay, ema_update_weight)
-                ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
-
-                if not self.manual_ema_update:
-                    self.update_ema()
-                    self.expire_codes_(x)
+        if self.training and ema_update and not freeze_codebook:
+            self.update_ema_part(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -934,6 +974,33 @@ class VectorQuantize(Module):
         x = self.maybe_split_heads_from_input(x)
         self._codebook.expire_codes_(x)
 
+    def update_ema_indices(self, x, indices, mask = None):
+        if self.accept_image_fmap:
+            assert not exists(mask)
+            height, width = x.shape[-2:]
+            x = rearrange(x, 'b c h w -> b (h w) c')
+
+        if not self.channel_last and not self.accept_image_fmap:
+            x = rearrange(x, 'b d n -> b n d')
+
+        x = self.project_in(x)
+        x = self.maybe_split_heads_from_input(x)
+        x = self._codebook.transform_input(x)
+
+        if self.heads > 1:
+            if self.separate_codebook_per_head:
+                indices = rearrange(indices, 'b n h -> h b n')
+            else:
+                indices = rearrange(indices, 'b n h -> 1 (b h) n')
+
+        if self.accept_image_fmap:
+             indices = rearrange(indices, 'b h w ... -> b (h w) ...')
+
+        if x.ndim == 2: # only one token
+             indices = rearrange(indices, 'b ... -> b 1 ...')
+
+        self._codebook.update_ema_indices(x, indices, mask = mask)
+
     def forward(
         self,
         x,
@@ -945,7 +1012,8 @@ class VectorQuantize(Module):
         return_loss_breakdown = False,
         codebook_transform_fn: Callable | None = None,
         ema_update_weight: Tensor | None = None,
-        accum_ema_update = False
+        accum_ema_update = False,
+        ema_update = None
     ):
         orig_input, input_requires_grad = x, x.requires_grad
 
@@ -1003,7 +1071,8 @@ class VectorQuantize(Module):
             freeze_codebook = freeze_codebook,
             codebook_transform_fn = codebook_transform_fn,
             ema_update_weight = ema_update_weight,
-            accum_ema_update = accum_ema_update
+            accum_ema_update = accum_ema_update,
+            ema_update = ema_update
         )
 
         # quantize
