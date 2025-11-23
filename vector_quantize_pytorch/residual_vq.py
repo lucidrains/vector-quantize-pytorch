@@ -6,9 +6,10 @@ from functools import partial, cache
 from itertools import zip_longest
 
 import torch
-from torch import nn, Tensor, arange, cat
-from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from torch import nn, Tensor, tensor, arange, cat
+from torch.nn import Module, ModuleList
+
 import torch.distributed as dist
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
@@ -172,6 +173,7 @@ class ResidualVQ(Module):
         mlp_kwargs: dict = dict(),
         beam_size = None,
         eval_beam_size = None,
+        beam_score_quantizer_weights: list[float] | None = None,
         **vq_kwargs
     ):
         super().__init__()
@@ -235,6 +237,13 @@ class ResidualVQ(Module):
 
         self.beam_size = default(beam_size, eval_beam_size)
         self.eval_beam_size = eval_beam_size
+
+        # able to assign a different weight for the scoring at each quantizer layer
+
+        beam_score_quantizer_weights = default(beam_score_quantizer_weights, [1.] * num_quantizers)
+        assert len(beam_score_quantizer_weights) == num_quantizers
+
+        self.register_buffer('beam_score_weights', tensor(beam_score_quantizer_weights), persistent = False)
 
         # setting up the MLPs for implicit neural codebooks
         
@@ -427,6 +436,8 @@ class ResidualVQ(Module):
 
         for quantizer_index, (vq, maybe_mlp) in enumerate(zip(self.layers, maybe_code_transforms)):
 
+            is_last_step = (quantizer_index == (len(self.layers) - 1)) if not should_quantize_dropout else quantizer_index == rand_quantize_dropout_index
+
             if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
                 all_indices = pad_at_dim(all_indices, (0, 1), value = -1, dim = -1)
                 all_losses = pad_at_dim(all_losses, (0, 1), value = 0, dim = -1)
@@ -470,7 +481,8 @@ class ResidualVQ(Module):
 
             if is_beam_search:
 
-                search_scores = einx.add('... j, ... j k -> ... (j k)', search_scores, -loss)
+                score_weight = self.beam_score_weights[quantizer_index]
+                search_scores = einx.add('... j, ... j k -> ... (j k)', search_scores, -loss * score_weight)
 
                 residual = rearrange(residual, '... j d -> ... j 1 d')
                 quantized_out = rearrange(quantized_out, '... j d -> ... j 1 d')
@@ -506,8 +518,10 @@ class ResidualVQ(Module):
 
                 # handle sort and selection of highest beam size
 
-                if search_scores.shape[-1] > beam_size:
-                    search_scores, select_indices = search_scores.topk(beam_size, dim = -1)
+                layer_beam_size = beam_size if not is_last_step else 1
+
+                if search_scores.shape[-1] > layer_beam_size:
+                    search_scores, select_indices = search_scores.topk(layer_beam_size, dim = -1)
 
                     residual = batch_select(residual, select_indices, '* k d')
                     quantized_out = batch_select(quantized_out, select_indices, '* k d')
@@ -526,12 +540,6 @@ class ResidualVQ(Module):
         # handle beam search
 
         if is_beam_search:
-            top_index = search_scores.argmax(dim = -1, keepdim = True)
-
-            quantized_out = batch_select(quantized_out, top_index, '* k d')
-            all_indices = batch_select(all_indices, top_index, '* k l')
-            all_losses = batch_select(all_losses, top_index, '* k l')
-            all_residuals = batch_select(all_residuals, top_index, '* k l d')
 
             quantized_out, all_indices, all_losses, all_residuals = [t[..., 0, :] for t in (quantized_out, all_indices, all_losses, all_residuals)]
 
