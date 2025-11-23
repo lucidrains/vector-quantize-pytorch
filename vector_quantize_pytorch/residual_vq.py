@@ -235,8 +235,10 @@ class ResidualVQ(Module):
 
         # beam size
 
-        self.beam_size = default(beam_size, eval_beam_size)
-        self.eval_beam_size = eval_beam_size
+        assert not (exists(eval_beam_size) and not exists(beam_size))
+
+        self.beam_size = beam_size
+        self.eval_beam_size = default(eval_beam_size, beam_size)
 
         # able to assign a different weight for the scoring at each quantizer layer
 

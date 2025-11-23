@@ -51,13 +51,15 @@ def test_beam_search():
         dim = 256,
         num_quantizers = 8,      # specify number of quantizers
         codebook_size = 1024,    # codebook size
-        quantize_dropout = True
+        quantize_dropout = True,
+        beam_size = 2,
+        eval_beam_size = 3
     )
 
     x = torch.randn(1, 1024, 256)
 
     for _ in range(5):
-        quantized, indices, commit_loss = residual_vq(x, beam_size = 3)
+        quantized, indices, commit_loss = residual_vq(x)
 
     assert quantized.shape == (1, 1024, 256)
     assert indices.shape == (1, 1024, 8)
