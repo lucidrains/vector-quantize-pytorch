@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Callable
 
 from math import sqrt
 from functools import partial, cache
@@ -6,7 +7,7 @@ from collections import namedtuple
 
 import torch
 from torch.nn import Module
-from torch import nn, einsum, is_tensor, Tensor
+from torch import nn, einsum, tensor, is_tensor, Tensor
 import torch.nn.functional as F
 import torch.distributed as distributed
 from torch.optim import Optimizer
@@ -14,8 +15,6 @@ from torch.amp import autocast
 
 import einx
 from einops import rearrange, repeat, reduce, pack, unpack
-
-from typing import Callable
 
 def exists(val):
     return val is not None
@@ -182,7 +181,7 @@ def sample_multinomial(total_count, probs):
     return sample.to(device)
 
 def all_gather_sizes(x, dim):
-    size = torch.tensor(x.shape[dim], dtype = torch.long, device = x.device)
+    size = tensor(x.shape[dim], dtype = torch.long, device = x.device)
     all_sizes = [torch.empty_like(size) for _ in range(distributed.get_world_size())]
     distributed.all_gather(all_sizes, size)
     return torch.stack(all_sizes)
@@ -337,7 +336,7 @@ def orthogonal_loss_fn(t):
 
 # distance types
 
-class EuclideanCodebook(Module):
+class Codebook(Module):
     def __init__(
         self,
         dim,
@@ -359,17 +358,23 @@ class EuclideanCodebook(Module):
         affine_param = False,
         sync_affine_param = False,
         affine_param_batch_decay = 0.99,
-        affine_param_codebook_decay = 0.9
+        affine_param_codebook_decay = 0.9,
+        use_cosine_sim = False
     ):
         super().__init__()
-        self.transform_input = identity
+        self.transform_input = identity if not use_cosine_sim else l2norm
 
         self.decay = decay
         self.ema_update = ema_update
         self.manual_ema_update = manual_ema_update
 
-        init_fn = uniform_init if not kmeans_init else torch.zeros
-        embed = init_fn(num_codebooks, codebook_size, dim)
+        if kmeans_init:
+            embed = torch.zeros(num_codebooks, codebook_size, dim)
+        else:
+            embed = uniform_init(num_codebooks, codebook_size, dim)
+
+            if use_cosine_sim:
+                embed = l2norm(embed)
 
         self.codebook_size = codebook_size
         self.num_codebooks = num_codebooks
@@ -392,7 +397,7 @@ class EuclideanCodebook(Module):
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        self.register_buffer('initted', torch.Tensor([not kmeans_init]))
+        self.register_buffer('initted', tensor(not kmeans_init))
         self.register_buffer('cluster_size', torch.ones(num_codebooks, codebook_size))
         self.register_buffer('embed_avg', embed.clone())
 
@@ -401,6 +406,8 @@ class EuclideanCodebook(Module):
             self.embed = nn.Parameter(embed)
         else:
             self.register_buffer('embed', embed)
+
+        self.use_cosine_sim = use_cosine_sim
 
         # affine related params
 
@@ -416,9 +423,9 @@ class EuclideanCodebook(Module):
         self.register_buffer('batch_mean', None)
         self.register_buffer('batch_variance', None)
 
-        self.register_buffer('codebook_mean_needs_init', torch.Tensor([True]))
+        self.register_buffer('codebook_mean_needs_init', tensor(True))
         self.register_buffer('codebook_mean', torch.empty(num_codebooks, 1, dim))
-        self.register_buffer('codebook_variance_needs_init', torch.Tensor([True]))
+        self.register_buffer('codebook_variance_needs_init', tensor(True))
         self.register_buffer('codebook_variance', torch.empty(num_codebooks, 1, dim))
 
     @torch.jit.ignore
@@ -434,6 +441,7 @@ class EuclideanCodebook(Module):
             data,
             self.codebook_size,
             self.kmeans_iters,
+            use_cosine_sim = self.use_cosine_sim,
             sample_fn = self.sample_fn,
             all_reduce_fn = self.kmeans_all_reduce_fn
         )
@@ -443,7 +451,7 @@ class EuclideanCodebook(Module):
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
         self.update_ema()
-        self.initted.data.copy_(torch.Tensor([True]))
+        self.initted.data.copy_(tensor(True))
 
     @torch.jit.ignore
     def update_with_decay(self, buffer_name, new_value, decay):
@@ -452,7 +460,7 @@ class EuclideanCodebook(Module):
         needs_init = getattr(self, buffer_name + "_needs_init", False)
 
         if needs_init:
-            self.register_buffer(buffer_name + "_needs_init", torch.Tensor([False]))
+            self.register_buffer(buffer_name + "_needs_init", tensor(False))
 
         if not exists(old_value) or needs_init:
             self.register_buffer(buffer_name, new_value.detach())
@@ -495,7 +503,7 @@ class EuclideanCodebook(Module):
 
         # number of vectors, for denominator
 
-        num_vectors = torch.tensor([num_vectors], device = device, dtype = dtype)
+        num_vectors = tensor(num_vectors, device = device, dtype = dtype)
         distributed.all_reduce(num_vectors)
 
         # calculate distributed mean
@@ -515,6 +523,9 @@ class EuclideanCodebook(Module):
         self.update_with_decay('batch_variance', batch_variance, self.affine_param_batch_decay)
 
     def replace(self, batch_samples, batch_mask):
+        if self.use_cosine_sim:
+            batch_samples = l2norm(batch_samples)
+
         for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
@@ -539,6 +550,10 @@ class EuclideanCodebook(Module):
         cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
 
         embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
+
+        if self.use_cosine_sim:
+            embed_normalized = l2norm(embed_normalized)
+
         self.embed.data.copy_(embed_normalized)
 
     @autocast('cuda', enabled = False)
@@ -578,6 +593,7 @@ class EuclideanCodebook(Module):
         embed = embed.to(dtype)
 
         # affine params
+
         if self.affine_param:
             codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
@@ -589,11 +605,18 @@ class EuclideanCodebook(Module):
         if exists(codebook_transform_fn):
             transformed_embed = codebook_transform_fn(embed)
             transformed_embed = rearrange(transformed_embed, 'h b n c d -> h (b n) c d')
-            broadcastable_input = rearrange(flatten, '... d -> ... 1 d')
 
-            dist = -F.pairwise_distance(broadcastable_input, transformed_embed)
+            if self.use_cosine_sim:
+                transformed_embed = l2norm(transformed_embed)
+                dist = einsum('h n d, h n c d -> h n c', flatten, transformed_embed)
+            else:
+                broadcastable_input = rearrange(flatten, '... d -> ... 1 d')
+                dist = -F.pairwise_distance(broadcastable_input, transformed_embed)
         else:
-            dist = -cdist(flatten, embed)
+            if self.use_cosine_sim:
+                 dist = einsum('h n d, h c d -> h n c', flatten, embed)
+            else:
+                 dist = -cdist(flatten, embed)
 
         # sample or argmax depending on temperature
 
@@ -661,229 +684,6 @@ class EuclideanCodebook(Module):
 
         dist = unpack_one(dist, 'h * d')
 
-        return quantize, embed_ind, dist
-
-class CosineSimCodebook(Module):
-    def __init__(
-        self,
-        dim,
-        codebook_size,
-        num_codebooks = 1,
-        kmeans_init = False,
-        kmeans_iters = 10,
-        sync_kmeans = True,
-        decay = 0.8,
-        eps = 1e-5,
-        threshold_ema_dead_code = 2,
-        reset_cluster_size = None,
-        use_ddp = False,
-        learnable_codebook = False,
-        gumbel_sample = gumbel_sample,
-        sample_codebook_temp = 1.,
-        ema_update = True,
-        manual_ema_update = False
-    ):
-        super().__init__()
-        self.transform_input = l2norm
-
-        self.ema_update = ema_update
-        self.manual_ema_update = manual_ema_update
-
-        self.decay = decay
-
-        if not kmeans_init:
-            embed = l2norm(uniform_init(num_codebooks, codebook_size, dim))
-        else:
-            embed = torch.zeros(num_codebooks, codebook_size, dim)
-
-        self.codebook_size = codebook_size
-        self.num_codebooks = num_codebooks
-
-        self.kmeans_iters = kmeans_iters
-        self.eps = eps
-        self.threshold_ema_dead_code = threshold_ema_dead_code
-        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
-
-        assert callable(gumbel_sample)
-        self.gumbel_sample = gumbel_sample
-        self.sample_codebook_temp = sample_codebook_temp
-
-        self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
-
-        self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
-
-        self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
-        self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
-
-        self.register_buffer('initted', torch.Tensor([not kmeans_init]))
-        self.register_buffer('cluster_size', torch.ones(num_codebooks, codebook_size))
-        self.register_buffer('embed_avg', embed.clone())
-
-        self.learnable_codebook = learnable_codebook
-        if learnable_codebook:
-            self.embed = nn.Parameter(embed)
-        else:
-            self.register_buffer('embed', embed)
-
-    @torch.jit.ignore
-    def init_embed_(self, data, mask = None):
-        if self.initted:
-            return
-
-        if exists(mask):
-            c = data.shape[0]
-            data = rearrange(data[mask], '(c n) d -> c n d', c = c)
-
-        embed, cluster_size = kmeans(
-            data,
-            self.codebook_size,
-            self.kmeans_iters,
-            use_cosine_sim = True,
-            sample_fn = self.sample_fn,
-            all_reduce_fn = self.kmeans_all_reduce_fn
-        )
-
-        embed_sum = embed * rearrange(cluster_size, '... -> ... 1')
-
-        self.embed_avg.data.copy_(embed_sum)
-        self.cluster_size.data.copy_(cluster_size)
-        self.update_ema()
-        self.initted.data.copy_(torch.Tensor([True]))
-
-    def replace(self, batch_samples, batch_mask):
-        batch_samples = l2norm(batch_samples)
-
-        for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
-            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
-            sampled = rearrange(sampled, '1 ... -> ...')
-
-            self.embed.data[ind][mask] = sampled
-            self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
-            self.cluster_size.data[ind][mask] = self.reset_cluster_size
-
-    def expire_codes_(self, batch_samples):
-        if self.threshold_ema_dead_code == 0:
-            return
-
-        expired_codes = self.cluster_size < self.threshold_ema_dead_code
-
-        if not torch.any(expired_codes):
-            return
-
-        batch_samples = rearrange(batch_samples, 'h ... d -> h (...) d')
-        self.replace(batch_samples, batch_mask = expired_codes)
-
-    def update_ema(self):
-        cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
-
-        embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
-        embed_normalized = l2norm(embed_normalized)
-
-        self.embed.data.copy_(embed_normalized)
-
-    @autocast('cuda', enabled = False)
-    def forward(
-        self,
-        x,
-        sample_codebook_temp = None,
-        mask = None,
-        freeze_codebook = False,
-        codebook_transform_fn: Callable | None = None,
-        ema_update_weight: Tensor | None = None,
-        accum_ema_update = False
-    ):
-        needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
-
-        x = x.float()
-
-        if needs_codebook_dim:
-            x = rearrange(x, '... -> 1 ...')
-
-        dtype = x.dtype
-
-        flatten, unpack_one = pack_one(x, 'h * d')
-
-        if exists(mask):
-            mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
-
-        self.init_embed_(flatten, mask = mask)
-
-        embed = self.embed if self.learnable_codebook else self.embed.detach()
-
-        embed = embed.to(dtype)
-
-        # handle maybe implicit neural codebook
-        # and compute cosine sim distance
-
-        if exists(codebook_transform_fn):
-            transformed_embed = codebook_transform_fn(embed)
-            transformed_embed = rearrange(transformed_embed, 'h b n c d -> h (b n) c d')
-            transformed_embed = l2norm(transformed_embed)
-
-            dist = einsum('h n d, h n c d -> h n c', flatten, transformed_embed)
-        else:
-            dist = einsum('h n d, h c d -> h n c', flatten, embed)
-
-        embed_ind, embed_onehot = self.gumbel_sample(dist, dim = -1, temperature = sample_codebook_temp, training = self.training)
-        embed_ind = unpack_one(embed_ind, 'h *')
-
-        if exists(codebook_transform_fn):
-            transformed_embed = unpack_one(transformed_embed, 'h * c d')
-
-        if self.training:
-            unpacked_onehot = unpack_one(embed_onehot, 'h * c')
-
-            if exists(codebook_transform_fn):
-                quantize = einsum('h b n c, h b n c d -> h b n d', unpacked_onehot, transformed_embed)
-            else:
-                quantize = einsum('h b n c, h c d -> h b n d', unpacked_onehot, embed)
-
-        else:
-            if exists(codebook_transform_fn):
-                # quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
-
-                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n 1 d', d = transformed_embed.shape[-1])
-                quantize = transformed_embed.gather(-2, repeated_embed_ind)
-                quantize = rearrange(quantize, 'h b n 1 d -> h b n d')
-
-            else:
-                # quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
-
-                repeated_embed = repeat(embed, 'h c d -> h b c d', b = embed_ind.shape[1])
-                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
-                quantize = repeated_embed.gather(-2, repeated_embed_ind)
-
-        if self.training and self.ema_update and not freeze_codebook:
-            if exists(mask):
-                embed_onehot[~mask] = 0.
-
-            bins = embed_onehot.sum(dim = 1)
-            self.all_reduce_fn(bins)
-
-            embed_sum = einsum('h n d, h n c -> h c d', flatten, embed_onehot)
-            embed_sum = embed_sum.contiguous()
-            self.all_reduce_fn(embed_sum)
-
-            if callable(ema_update_weight):
-                ema_update_weight = ema_update_weight(embed_sum, bins)
-
-            if accum_ema_update:
-                accum_grad_(self.cluster_size, bins)
-                accum_grad_(self.embed_avg, embed_sum)
-            else:
-
-                ema_inplace(self.cluster_size, bins, self.decay, ema_update_weight)
-                ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
-
-                if not self.manual_ema_update:
-                    self.update_ema()
-                    self.expire_codes_(x)
-
-        if needs_codebook_dim:
-            quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
-
-        dist = unpack_one(dist, 'h * d')
         return quantize, embed_ind, dist
 
 # main class
@@ -1001,7 +801,7 @@ class VectorQuantize(Module):
 
         self.sync_update_v = sync_update_v
 
-        codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
+        codebook_class = Codebook
 
         gumbel_sample_fn = partial(
             gumbel_sample,
@@ -1027,7 +827,8 @@ class VectorQuantize(Module):
             sample_codebook_temp = sample_codebook_temp,
             gumbel_sample = gumbel_sample_fn,
             ema_update = ema_update,
-            manual_ema_update = manual_ema_update
+            manual_ema_update = manual_ema_update,
+            use_cosine_sim = use_cosine_sim
         )
 
         if affine_param:
@@ -1051,7 +852,7 @@ class VectorQuantize(Module):
         self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
-        self.register_buffer('zero', torch.tensor(0.), persistent = False)
+        self.register_buffer('zero', tensor(0.), persistent = False)
 
         # for variable lengthed sequences, whether to take care of masking out the padding to 0 (or return the original input)
         self.return_zeros_for_masked_padding = return_zeros_for_masked_padding
@@ -1301,7 +1102,7 @@ class VectorQuantize(Module):
 
         # aggregate loss
 
-        loss = torch.tensor([0.], device = device, requires_grad = self.training)
+        loss = tensor(0., device = device, requires_grad = self.training)
 
         if self.training:
             # calculate codebook diversity loss (negative of entropy) if needed
