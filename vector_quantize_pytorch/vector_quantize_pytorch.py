@@ -728,7 +728,7 @@ class Codebook(Module):
                 repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
                 quantize = repeated_embed.gather(-2, repeated_embed_ind)
 
-        if self.training and ema_update and not freeze_codebook:
+        if self.training and ema_update and not freeze_codebook and not exists(topk):
             self.update_ema_part(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
 
         if needs_codebook_dim:
@@ -911,6 +911,10 @@ class VectorQuantize(Module):
 
         # whether to freeze the codebook, can be overridden on forward
         self.freeze_codebook = freeze_codebook
+
+    @property
+    def ema_update(self):
+        return self._codebook.ema_update
 
     @property
     def codebook(self):

@@ -6,7 +6,7 @@ from functools import partial, cache
 from itertools import zip_longest
 
 import torch
-from torch import nn, Tensor
+from torch import nn, Tensor, arange, cat
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -14,6 +14,7 @@ from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, reduce, pack, unpack
 
+import einx
 from einx import get_at
 
 # helper functions
@@ -35,6 +36,47 @@ def unique(arr):
 
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
+
+# tensor helpers
+
+def pad_at_dim(
+    t,
+    pad: tuple[int, int],
+    dim = -1,
+    value = 0.
+):
+    if pad == (0, 0):
+        return t
+
+    dims_from_right = (- dim - 1) if dim < 0 else (t.ndim - dim - 1)
+    zeros = ((0, 0) * dims_from_right)
+    return F.pad(t, (*zeros, *pad), value = value)
+
+def pack_one(t, pattern):
+    packed, packed_shape = pack([t], pattern)
+
+    def inverse(out, inv_pattern = None):
+        inv_pattern = default(inv_pattern, pattern)
+        return first(unpack(out, packed_shape, inv_pattern))
+
+    return packed, inverse
+
+def batch_select(t, indices, pattern = None):
+
+    if exists(pattern):
+        indices = rearrange(indices, '... k -> (...) k')
+        t, inv_pack = pack_one(t, pattern)
+
+
+    batch_indices = arange(t.shape[0], device = t.device)
+    batch_indices = rearrange(batch_indices, 'b -> b 1')
+
+    out = t[batch_indices, indices]
+
+    if exists(pattern):
+        out = inv_pack(out)
+
+    return out
 
 # distributed helpers
 
@@ -128,6 +170,8 @@ class ResidualVQ(Module):
         accept_image_fmap = False,
         implicit_neural_codebook = False, # QINCo from https://arxiv.org/abs/2401.14732
         mlp_kwargs: dict = dict(),
+        beam_size = None,
+        eval_beam_size = None,
         **vq_kwargs
     ):
         super().__init__()
@@ -182,6 +226,15 @@ class ResidualVQ(Module):
 
         self.quantize_dropout_cutoff_index = quantize_dropout_cutoff_index
         self.quantize_dropout_multiple_of = quantize_dropout_multiple_of  # encodec paper proposes structured dropout, believe this was set to 4
+
+        # determine whether is using ema update
+
+        self.vq_is_ema_updating = first(self.layers).ema_update
+
+        # beam size
+
+        self.beam_size = default(beam_size, eval_beam_size)
+        self.eval_beam_size = eval_beam_size
 
         # setting up the MLPs for implicit neural codebooks
         
@@ -295,19 +348,29 @@ class ResidualVQ(Module):
         return_all_codes = False,
         sample_codebook_temp = None,
         freeze_codebook = False,
+        beam_size = None,
         rand_quantize_dropout_fixed_seed = None
     ):
-        num_quant, quant_dropout_multiple_of, return_loss, device = self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
+
+        # variables
+
+        input_shape, num_quant, quant_dropout_multiple_of, return_loss, device = x.shape, self.num_quantizers, self.quantize_dropout_multiple_of, exists(indices), x.device
+
+        beam_size = default(beam_size, self.beam_size if self.training else self.eval_beam_size)
+
+        is_beam_search = exists(beam_size) and beam_size > 1
+
+        # projecting in
 
         x = self.project_in(x)
 
         assert not (self.accept_image_fmap and exists(indices))
 
-        quantized_out = 0.
+        quantized_out = torch.zeros_like(x)
         residual = x
 
-        all_losses = []
-        all_indices = []
+        all_losses = torch.empty((0,), device = device, dtype = torch.float32)
+        all_indices = torch.empty((*input_shape[:-1], 0), device = device, dtype = torch.long)
 
         if isinstance(indices, list):
             indices = torch.stack(indices)
@@ -319,7 +382,6 @@ class ResidualVQ(Module):
         should_quantize_dropout = self.training and self.quantize_dropout and not return_loss
 
         # sample a layer index at which to dropout further residual quantization
-        # also prepare null indices and loss
 
         if should_quantize_dropout:
 
@@ -335,9 +397,24 @@ class ResidualVQ(Module):
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
-            null_indices_shape = (x.shape[0], *x.shape[-2:]) if self.accept_image_fmap else tuple(x.shape[:2])
-            null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
-            null_loss = torch.full((1,), 0., device = device, dtype = x.dtype)
+        # save all inputs across layers, for use during expiration at end under shared codebook setting, or ema update during beam search
+
+        all_residuals = torch.empty((*input_shape[:-1], 0, input_shape[-1]), dtype = residual.dtype, device = device)
+
+        # maybe prepare beam search
+
+        if is_beam_search:
+            prec_dims = x.shape[:-1]
+
+            search_scores = torch.zeros((*prec_dims, 1), device = device, dtype = x.dtype)
+
+            residual = rearrange(residual, '... d -> ... 1 d')
+            quantized_out = rearrange(quantized_out, '... d -> ... 1 d')
+
+            all_residuals = rearrange(all_residuals, '... l d -> ... 1 l d')
+            all_indices = rearrange(all_indices, '... l -> ... 1 l')
+
+            all_losses = all_losses.reshape(*input_shape[:-1], 1, 0)
 
         # setup the mlps for implicit neural codebook
 
@@ -346,17 +423,13 @@ class ResidualVQ(Module):
         if self.implicit_neural_codebook:
             maybe_code_transforms = (None, *self.mlps)
 
-        # save all inputs across layers, for use during expiration at end under shared codebook setting
-
-        all_residuals = []
-
         # go through the layers
 
         for quantizer_index, (vq, maybe_mlp) in enumerate(zip(self.layers, maybe_code_transforms)):
 
             if should_quantize_dropout and quantizer_index > rand_quantize_dropout_index:
-                all_indices.append(null_indices)
-                all_losses.append(null_loss)
+                all_indices = pad_at_dim(all_indices, (0, 1), value = -1, dim = -1)
+                all_losses = pad_at_dim(all_losses, (0, 1), value = 0, dim = -1)
                 continue
 
             layer_indices = None
@@ -368,9 +441,9 @@ class ResidualVQ(Module):
             if exists(maybe_mlp):
                 maybe_mlp = partial(maybe_mlp, condition = quantized_out)
 
-            # save for expiration
+            # save the residual input for maybe expiration as well as ema update after beam search
 
-            all_residuals.append(residual)
+            all_residuals = cat((all_residuals, rearrange(residual, '... d -> ... 1 d')), dim = -2)
 
             # vector quantize forward
 
@@ -380,29 +453,111 @@ class ResidualVQ(Module):
                 indices = layer_indices,
                 sample_codebook_temp = sample_codebook_temp,
                 freeze_codebook = freeze_codebook,
-                codebook_transform_fn = maybe_mlp
+                codebook_transform_fn = maybe_mlp,
+                topk = beam_size if is_beam_search else None
             )
 
-            residual = residual - quantized.detach()
-            quantized_out = quantized_out + quantized
+            # cross entropy loss for some old paper
 
             if return_loss:
-                ce_loss = rest[0]
+                ce_loss = first(rest)
                 ce_losses.append(ce_loss)
                 continue
 
             embed_indices, loss = rest
 
-            all_indices.append(embed_indices)
-            all_losses.append(loss)
+            # handle expanding first residual if doing beam search
+
+            if is_beam_search:
+
+                search_scores = einx.add('... j, ... j k -> ... (j k)', search_scores, -loss)
+
+                residual = rearrange(residual, '... j d -> ... j 1 d')
+                quantized_out = rearrange(quantized_out, '... j d -> ... j 1 d')
+
+                all_residuals = repeat(all_residuals, '... j l d -> ... (j k) l d', k = beam_size)
+
+            # core residual vq logic
+
+            residual = residual - quantized.detach()
+            quantized_out = quantized_out + quantized
+
+            # handle sort and topk beams
+
+            if is_beam_search:
+                residual = rearrange(residual, '... j k d -> ... (j k) d')
+                quantized_out = rearrange(quantized_out, '... j k d -> ... (j k) d')
+
+                # broadcat the indices
+
+                all_indices = repeat(all_indices, '... j l -> ... j k l', k = embed_indices.shape[-1])
+                embed_indices = rearrange(embed_indices, '... j k -> ... j k 1')
+
+                all_indices = cat((all_indices, embed_indices), dim = -1)
+                all_indices = rearrange(all_indices, '... j k l -> ... (j k) l')
+
+                # broadcat the losses
+
+                all_losses = repeat(all_losses, '... j l -> ... j k l', k = loss.shape[-1])
+                loss = rearrange(loss, '... -> ... 1')
+
+                all_losses = cat((all_losses, loss), dim = -1)
+                all_losses = rearrange(all_losses, '... j k l -> ... (j k) l')
+
+                # handle sort and selection of highest beam size
+
+                if search_scores.shape[-1] > beam_size:
+                    search_scores, select_indices = search_scores.topk(beam_size, dim = -1)
+
+                    residual = batch_select(residual, select_indices, '* k d')
+                    quantized_out = batch_select(quantized_out, select_indices, '* k d')
+
+                    all_indices = batch_select(all_indices, select_indices, '* k l')
+                    all_losses = batch_select(all_losses, select_indices, '* k l')
+
+                    all_residuals = batch_select(all_residuals, select_indices, '* k l d')
+            else:
+                # aggregate indices and losses
+
+                all_indices = cat((all_indices, rearrange(embed_indices, '... -> ... 1')), dim = -1)
+
+                all_losses = cat((all_losses, rearrange(loss, '... -> ... 1')), dim = -1)
+
+        # handle beam search
+
+        if is_beam_search:
+            top_index = search_scores.argmax(dim = -1, keepdim = True)
+
+            quantized_out = batch_select(quantized_out, top_index, '* k d')
+            all_indices = batch_select(all_indices, top_index, '* k l')
+            all_losses = batch_select(all_losses, top_index, '* k l')
+            all_residuals = batch_select(all_residuals, top_index, '* k l d')
+
+            quantized_out, all_indices, all_losses, all_residuals = [t[..., 0, :] for t in (quantized_out, all_indices, all_losses, all_residuals)]
+
+            # handle commit loss, which should be the average
+
+            if exists(mask):
+                all_losses = einx.where('..., ... l,', mask, all_losses, 0.)
+                all_losses = reduce(all_losses, '... l -> l', 'sum') / mask.sum(dim = -1).clamp_min(1e-4)
+            else:
+                all_losses = reduce(all_losses, '... l -> l', 'mean')
+
+            # handle updating ema
+
+            if self.vq_is_ema_updating:
+                for vq, layer_input, indices in zip(self.layers, all_residuals.unbind(dim = -2), all_indices.unbind(dim = -1)): # in the case of quantize dropout, zip will terminate with the shorter sequence, which should be all_residuals
+                    vq.update_ema_indices(layer_input, indices, mask = mask)
 
         # if shared codebook, update ema only at end
 
-        if self.training and self.shared_codebook:
+        if self.training and self.shared_codebook and not is_beam_search:
             shared_layer = first(self.layers)
             shared_layer._codebook.update_ema()
             shared_layer.update_in_place_optimizer()
-            shared_layer.expire_codes_(torch.cat(all_residuals, dim = -2))
+
+            all_codes_for_expire = rearrange(all_residuals, '... n l d -> ... (n l) d')
+            shared_layer.expire_codes_(all_codes_for_expire)
 
         # project out, if needed
 
@@ -414,8 +569,6 @@ class ResidualVQ(Module):
             return quantized_out, sum(ce_losses)
 
         # stack all losses and indices
-
-        all_losses, all_indices = map(partial(torch.stack, dim = -1), (all_losses, all_indices))
 
         ret = (quantized_out, all_indices, all_losses)
 

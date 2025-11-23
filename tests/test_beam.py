@@ -42,3 +42,23 @@ def test_topk_and_manual_ema_update():
     assert torch.allclose(vq1._codebook.cluster_size, vq2._codebook.cluster_size)
     assert torch.allclose(vq1._codebook.embed_avg, vq2._codebook.embed_avg)
     assert torch.allclose(vq1.codebook, vq2.codebook)
+
+def test_beam_search():
+    import torch
+    from vector_quantize_pytorch import ResidualVQ
+
+    residual_vq = ResidualVQ(
+        dim = 256,
+        num_quantizers = 8,      # specify number of quantizers
+        codebook_size = 1024,    # codebook size
+        quantize_dropout = True
+    )
+
+    x = torch.randn(1, 1024, 256)
+
+    for _ in range(5):
+        quantized, indices, commit_loss = residual_vq(x, beam_size = 3)
+
+    assert quantized.shape == (1, 1024, 256)
+    assert indices.shape == (1, 1024, 8)
+    assert commit_loss.shape == (8,)
