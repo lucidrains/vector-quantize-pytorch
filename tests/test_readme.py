@@ -74,11 +74,13 @@ def test_vq_mask():
 @pytest.mark.parametrize('implicit_neural_codebook, use_cosine_sim', ((True, False), (False, True), (False, False)))
 @pytest.mark.parametrize('train', (True, False))
 @pytest.mark.parametrize('shared_codebook', (True, False))
+@pytest.mark.parametrize('quant_grad_frac', (0., 0.1))
 def test_residual_vq(
     implicit_neural_codebook,
     use_cosine_sim,
     train,
-    shared_codebook
+    shared_codebook,
+    quant_grad_frac
 ):
     from vector_quantize_pytorch import ResidualVQ
 
@@ -88,7 +90,8 @@ def test_residual_vq(
         codebook_size = 128,
         implicit_neural_codebook = implicit_neural_codebook,
         use_cosine_sim = use_cosine_sim,
-        shared_codebook = shared_codebook
+        shared_codebook = shared_codebook,
+        quant_grad_frac = quant_grad_frac
     )
 
     x = torch.randn(1, 256, 32)
