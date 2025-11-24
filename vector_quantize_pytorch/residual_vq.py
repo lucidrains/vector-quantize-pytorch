@@ -38,6 +38,14 @@ def unique(arr):
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
 
+def frac_gradient(t, frac):
+    detached = t.detach()
+
+    if frac <= 0:
+        return detached
+
+    return frac * t + (1. - frac) * detached
+
 # tensor helpers
 
 def pad_at_dim(
@@ -174,6 +182,7 @@ class ResidualVQ(Module):
         beam_size = None,
         eval_beam_size = None,
         beam_score_quantizer_weights: list[float] | None = None,
+        quant_grad_frac = 0.,
         **vq_kwargs
     ):
         super().__init__()
@@ -232,6 +241,10 @@ class ResidualVQ(Module):
         # determine whether is using ema update
 
         self.vq_is_ema_updating = first(self.layers).ema_update
+
+        # gradient related - how much can one layer influence the previous
+
+        self.quant_grad_frac = quant_grad_frac
 
         # beam size
 
@@ -493,7 +506,7 @@ class ResidualVQ(Module):
 
             # core residual vq logic
 
-            residual = residual - quantized.detach()
+            residual = residual - frac_gradient(quantized, self.quant_grad_frac)
             quantized_out = quantized_out + quantized
 
             # handle sort and topk beams
