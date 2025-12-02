@@ -191,6 +191,7 @@ class ResidualVQ(Module):
 
         codebook_dim = default(codebook_dim, dim)
         codebook_input_dim = codebook_dim * heads
+        self.codebook_dim = codebook_dim
 
         requires_projection = codebook_input_dim != dim
         self.project_in = nn.Linear(dim, codebook_input_dim) if requires_projection else nn.Identity()
@@ -223,6 +224,7 @@ class ResidualVQ(Module):
         self.num_quantizers = num_quantizers
 
         self.codebook_sizes = codebook_sizes
+
         self.uniform_codebook_size = len(unique(codebook_sizes)) == 1
 
         # define vq across layers
@@ -287,10 +289,6 @@ class ResidualVQ(Module):
     @property
     def codebook_size(self):
         return self.layers[0].codebook_size
-    
-    @property
-    def codebook_dim(self):
-        return self.layers[0].codebook_dim
 
     @property
     def codebooks(self):
@@ -423,7 +421,7 @@ class ResidualVQ(Module):
 
         # save all inputs across layers, for use during expiration at end under shared codebook setting, or ema update during beam search
 
-        all_residuals = torch.empty((*input_shape[:-1], 0, input_shape[-1]), dtype = residual.dtype, device = device)
+        all_residuals = torch.empty((*input_shape[:-1], 0, self.codebook_dim), dtype = residual.dtype, device = device)
 
         # maybe prepare beam search
 

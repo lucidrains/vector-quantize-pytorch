@@ -1134,6 +1134,11 @@ class VectorQuantize(Module):
 
             commit_quantize = maybe_detach(quantize)
 
+            # maybe expand input if returning topk codes
+
+            if exists(topk):
+                x = repeat(x, '... d -> ... k d', k = topk)
+
             # spare rotation trick calculation if inputs do not need gradients
 
             if input_requires_grad:

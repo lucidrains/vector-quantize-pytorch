@@ -1,3 +1,6 @@
+import pytest
+param = pytest.mark.parametrize
+
 import torch
 from vector_quantize_pytorch import VectorQuantize
 
@@ -43,12 +46,16 @@ def test_topk_and_manual_ema_update():
     assert torch.allclose(vq1._codebook.embed_avg, vq2._codebook.embed_avg)
     assert torch.allclose(vq1.codebook, vq2.codebook)
 
-def test_beam_search():
+@param('codebook_dim', (256, 128))
+def test_beam_search(
+    codebook_dim
+):
     import torch
     from vector_quantize_pytorch import ResidualVQ
 
     residual_vq = ResidualVQ(
         dim = 256,
+        codebook_dim = codebook_dim,
         num_quantizers = 8,      # specify number of quantizers
         codebook_size = 1024,    # codebook size
         quantize_dropout = True,
@@ -56,7 +63,7 @@ def test_beam_search():
         eval_beam_size = 3
     )
 
-    x = torch.randn(1, 1024, 256)
+    x = torch.randn(1, 1024, 256).requires_grad_()
 
     for _ in range(5):
         quantized, indices, commit_loss = residual_vq(x)
