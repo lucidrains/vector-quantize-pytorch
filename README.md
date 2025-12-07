@@ -568,6 +568,32 @@ assert indices.shape == (2, 3, num_codebooks)
 assert loss.item() >= 0
 ```
 
+## GaussianQuant
+* Train a Gaussian VAE and convert it into VQ-VAE without much loss. 
+* The Gaussian VAE need to satisfy $D_{KL}(q(Z^i|X)||N(0,1))\approx\log_2$ codebooksize.
+* The GaussianQuant has exact same interface as VQ-VAE. You can determine codebook dim, codebook size, and GaussianQuant will implicitly infer codebook number.
+* The GaussianQuant takes input of any shape. But you need to specify which dimension to quantize.
+* Unlike other VQ-VAE, the input Z should contains twice channels, the first split is mean of Gaussian VAE, the second split is the logvar.
+* For details, see https://github.com/tongdaxu/VQ-VAE-from-Gaussian-VAE
+* Usage example can be found in ./examples/autoencoder_gq.py
+* Usage example can also be found below:
+```python
+    import torch
+    from vector_quantize_pytorch import GaussianQuant
+    mu = torch.zeros([1,6,64,64]) # B, C, H, W,
+    logvar = torch.zeros([1,6,64,64])
+    input = torch.cat([mu, logvar],dim=1)
+    gq = GaussianQuant(dim=3, dim_idx=1, codebook_size=128)
+    # quant on C dimension
+    # codebook dim = 3, input dim = 6, so codebook number is 2
+    zhat, log = gq(input)
+    loss = log["kl-loss"]
+
+    indices = log["indices"]
+    print(indices.shaoe)
+    zhat2 = gq.indices_to_codes(indices)
+```
+
 ## Citations
 
 ```bibtex

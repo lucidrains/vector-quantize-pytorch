@@ -14,6 +14,7 @@ from vector_quantize_pytorch.residual_fsq import ResidualFSQ, GroupedResidualFSQ
 from vector_quantize_pytorch.latent_quantization import LatentQuantize
 from vector_quantize_pytorch.sim_vq import SimVQ
 from vector_quantize_pytorch.residual_sim_vq import ResidualSimVQ
+from vector_quantize_pytorch.gaussian_quant import GaussianQuant
 
 QUANTIZE_KLASSES = (
     VectorQuantize,
@@ -28,7 +29,8 @@ QUANTIZE_KLASSES = (
     GroupedResidualLFQ,
     ResidualFSQ,
     GroupedResidualFSQ,
-    LatentQuantize
+    LatentQuantize,
+    GaussianQuant
 )
 
 # classes
