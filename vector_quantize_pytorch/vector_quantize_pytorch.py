@@ -89,6 +89,8 @@ def ema_inplace(old, new, decay, weight = None):
         assert weight.ndim == 2 and weight.shape == old.shape[:2]
         weight = append_dims_to(weight, old.ndim)
 
+    new = new.to(old)
+
     old.data.lerp_(new, (1. - decay) * weight)
 
 def pack_one(t, pattern):
