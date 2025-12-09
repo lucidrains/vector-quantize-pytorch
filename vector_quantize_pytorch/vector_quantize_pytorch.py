@@ -1146,13 +1146,15 @@ class VectorQuantize(Module):
             # spare rotation trick calculation if inputs do not need gradients
 
             if input_requires_grad:
+                x_for_grad = x.to(quantize)
+
                 if self.rotation_trick:
-                    quantize = rotate_to(x, quantize)
+                    quantize = rotate_to(x_for_grad, quantize)
                 elif self.directional_reparam:
-                    quantize = directional_reparam(x, quantize, self.directional_reparam_variance)
+                    quantize = directional_reparam(x_for_grad, quantize, self.directional_reparam_variance)
                 else:
                     # standard STE to get gradients through VQ layer.
-                    quantize = straight_through(x, quantize)
+                    quantize = straight_through(x_for_grad, quantize)
 
             if self.sync_update_v > 0.:
                 # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
