@@ -1057,7 +1057,7 @@ class VectorQuantize(Module):
             assert not exists(mask)
             x = rearrange(x, 'b d -> b 1 d')
 
-        shape, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
+        shape, dtype, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.dtype, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
         should_inplace_optimize = exists(self.in_place_codebook_optimizer)
@@ -1100,6 +1100,8 @@ class VectorQuantize(Module):
         # quantize
 
         quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
+
+        quantize = quantize.type(dtype)
 
         # losses for loss breakdown
 
@@ -1146,15 +1148,14 @@ class VectorQuantize(Module):
             # spare rotation trick calculation if inputs do not need gradients
 
             if input_requires_grad:
-                x_for_grad = x.to(quantize)
 
                 if self.rotation_trick:
-                    quantize = rotate_to(x_for_grad, quantize)
+                    quantize = rotate_to(x, quantize)
                 elif self.directional_reparam:
-                    quantize = directional_reparam(x_for_grad, quantize, self.directional_reparam_variance)
+                    quantize = directional_reparam(x, quantize, self.directional_reparam_variance)
                 else:
                     # standard STE to get gradients through VQ layer.
-                    quantize = straight_through(x_for_grad, quantize)
+                    quantize = straight_through(x, quantize)
 
             if self.sync_update_v > 0.:
                 # (21) in https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
