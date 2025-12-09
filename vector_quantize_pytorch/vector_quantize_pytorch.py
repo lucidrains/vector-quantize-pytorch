@@ -537,6 +537,8 @@ class Codebook(Module):
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
 
+            sampled = sampled.to(self.embed.data)
+
             self.embed.data[ind][mask] = sampled
             self.cluster_size.data[ind][mask] = self.reset_cluster_size
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
