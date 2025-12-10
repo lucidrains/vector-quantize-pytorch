@@ -387,7 +387,7 @@ def test_latent_q():
     quantizer = LatentQuantize(
         levels = [5, 5, 8],      # number of levels per codebook dimension
         dim = 16,                   # input dim
-        commitment_loss_weight=0.1,  
+        commitment_loss_weight=0.1,
         quantization_loss_weight=0.1,
     )
 
@@ -488,3 +488,21 @@ def test_accum_ema_update():
     _ = vq(x)
 
     assert not torch.allclose(codebook_before, vq.codebook, atol = 1e-6)
+
+def test_vq_3d():
+    from vector_quantize_pytorch import VectorQuantize
+
+    quantizer = VectorQuantize(
+        dim = 64,
+        codebook_size = 512,                # codebook size
+        accept_3d_fmap=True,
+    )
+
+    x = torch.randn(1, 64, 16, 16, 16)  # (B, C, D, H, W)
+    quantizer.eval()
+
+    quantized, indices, commit_loss = quantizer(x)
+
+    assert x.shape == quantized.shape
+    assert indices.shape == (1, 16, 16, 16)
+    assert torch.allclose(quantized, quantizer.get_output_from_indices(indices))

@@ -955,7 +955,7 @@ class VectorQuantize(Module):
             codes = rearrange(codes, 'b h n d -> b n (h d)')
             codes = unpack_one(codes, 'b * d')
 
-        if not self.channel_last:
+        if not self.channel_last or self.accept_image_fmap or self.accept_3d_fmap:
             codes = rearrange(codes, 'b ... d -> b d ...')
 
         return codes
@@ -1002,7 +1002,11 @@ class VectorQuantize(Module):
             height, width = x.shape[-2:]
             x = rearrange(x, 'b c h w -> b (h w) c')
 
-        if not self.channel_last and not self.accept_image_fmap:
+        if self.accept_3d_fmap:
+            assert not exists(mask)
+            x = rearrange(x, 'b c d h w -> b (d h w) c')
+
+        if not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap:
             x = rearrange(x, 'b d n -> b n d')
 
         x = self.project_in(x)
@@ -1017,6 +1021,9 @@ class VectorQuantize(Module):
 
         if self.accept_image_fmap:
              indices = rearrange(indices, 'b h w ... -> b (h w) ...')
+
+        if self.accept_3d_fmap:
+             indices = rearrange(indices, 'b d h w ... -> b (d h w) ...')
 
         if x.ndim == 2: # only one token
              indices = rearrange(indices, 'b ... -> b 1 ...')
