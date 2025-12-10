@@ -770,6 +770,7 @@ class VectorQuantize(Module):
         threshold_ema_dead_code = 0,
         channel_last = True,
         accept_image_fmap = False,
+        accept_3d_fmap = False,
         commitment_weight = 1.,
         commitment_use_cross_entropy_loss = False,
         orthogonal_reg_weight = 0.,
@@ -906,6 +907,7 @@ class VectorQuantize(Module):
         self.codebook_size = codebook_size
 
         self.accept_image_fmap = accept_image_fmap
+        self.accept_3d_fmap = accept_3d_fmap
         self.channel_last = channel_last
 
         self.register_buffer('zero', tensor(0.), persistent = False)
@@ -953,7 +955,7 @@ class VectorQuantize(Module):
             codes = rearrange(codes, 'b h n d -> b n (h d)')
             codes = unpack_one(codes, 'b * d')
 
-        if not self.channel_last:
+        if not self.channel_last or self.accept_image_fmap or self.accept_3d_fmap:
             codes = rearrange(codes, 'b ... d -> b d ...')
 
         return codes
@@ -1000,7 +1002,11 @@ class VectorQuantize(Module):
             height, width = x.shape[-2:]
             x = rearrange(x, 'b c h w -> b (h w) c')
 
-        if not self.channel_last and not self.accept_image_fmap:
+        if self.accept_3d_fmap:
+            assert not exists(mask)
+            x = rearrange(x, 'b c d h w -> b (d h w) c')
+
+        if not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap:
             x = rearrange(x, 'b d n -> b n d')
 
         x = self.project_in(x)
@@ -1015,6 +1021,9 @@ class VectorQuantize(Module):
 
         if self.accept_image_fmap:
              indices = rearrange(indices, 'b h w ... -> b (h w) ...')
+
+        if self.accept_3d_fmap:
+             indices = rearrange(indices, 'b d h w ... -> b (d h w) ...')
 
         if x.ndim == 2: # only one token
              indices = rearrange(indices, 'b ... -> b 1 ...')
@@ -1059,7 +1068,7 @@ class VectorQuantize(Module):
 
         shape, dtype, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.dtype, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
 
-        need_transpose = not self.channel_last and not self.accept_image_fmap
+        need_transpose = not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap
         should_inplace_optimize = exists(self.in_place_codebook_optimizer)
 
         # rearrange inputs
@@ -1068,6 +1077,11 @@ class VectorQuantize(Module):
             assert not exists(mask)
             height, width = x.shape[-2:]
             x = rearrange(x, 'b c h w -> b (h w) c')
+
+        if self.accept_3d_fmap:
+            assert not exists(mask)
+            depth, height, width = x.shape[-3:]
+            x = rearrange(x, 'b c d h w -> b (d h w) c')
 
         if need_transpose:
             x = rearrange(x, 'b d n -> b n d')
@@ -1196,6 +1210,9 @@ class VectorQuantize(Module):
         if self.accept_image_fmap:
             embed_ind = rearrange(embed_ind, 'b (h w) ... -> b h w ...', h = height, w = width)
 
+        if self.accept_3d_fmap:
+            embed_ind = rearrange(embed_ind, 'b (d h w) ... -> b d h w ...', d = depth, h = height, w = width)
+
         if only_one:
             embed_ind = rearrange(embed_ind, 'b 1 ... -> b ...')
 
@@ -1288,6 +1305,9 @@ class VectorQuantize(Module):
 
         if self.accept_image_fmap:
             quantize = rearrange(quantize, 'b (h w) c -> b c h w', h = height, w = width)
+
+        if self.accept_3d_fmap:
+            quantize = rearrange(quantize, "b (d h w) c -> b c d h w", d=depth, h=height, w=width)
 
         if only_one:
             quantize = rearrange(quantize, 'b 1 d -> b d')
