@@ -851,6 +851,7 @@ class VectorQuantize(Module):
         self.directional_reparam = directional_reparam
         self.directional_reparam_variance = directional_reparam_variance
 
+        assert not (straight_through and learnable_codebook), 'gumbel straight through not allowed when learning the codebook'
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
 
         assert 0 <= sync_update_v <= 1.
