@@ -80,6 +80,8 @@ class FSQ(Module):
     ):
         super().__init__()
 
+        assert not (any([l == 2 for l in levels]) and not preserve_symmetry), 'turn on `preserve_symmetry` for using any levels == 2, or use a greater level'
+
         if isinstance(levels, tuple):
             levels = list(levels)
 
