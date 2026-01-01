@@ -366,7 +366,8 @@ class Codebook(Module):
         sync_affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9,
-        use_cosine_sim = False
+        use_cosine_sim = False,
+        vq_bridge: Module | None = None
     ):
         super().__init__()
         self.transform_input = identity if not use_cosine_sim else l2norm
@@ -395,6 +396,7 @@ class Codebook(Module):
         self.gumbel_sample = gumbel_sample
         self.sample_codebook_temp = sample_codebook_temp
 
+        self.use_ddp = use_ddp
         assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
@@ -415,6 +417,10 @@ class Codebook(Module):
             self.register_buffer('embed', embed)
 
         self.use_cosine_sim = use_cosine_sim
+
+        # fvq
+
+        self.vq_bridge = vq_bridge
 
         # affine related params
 
@@ -668,6 +674,11 @@ class Codebook(Module):
 
         embed = embed.to(dtype)
 
+        # maybe vq bridge
+
+        if exists(self.vq_bridge):
+            embed = self.vq_bridge(embed)
+
         # affine params
 
         if self.affine_param:
@@ -787,6 +798,7 @@ class VectorQuantize(Module):
         sync_codebook = None,
         sync_affine_param = False,
         ema_update = None,
+        vq_bridge: Module | None = None,
         manual_ema_update = False,
         learnable_codebook = None,
         in_place_codebook_optimizer: Callable[..., Optimizer] = None, # Optimizer used to update the codebook embedding if using learnable_codebook
@@ -886,7 +898,8 @@ class VectorQuantize(Module):
             gumbel_sample = gumbel_sample_fn,
             ema_update = ema_update,
             manual_ema_update = manual_ema_update,
-            use_cosine_sim = use_cosine_sim
+            use_cosine_sim = use_cosine_sim,
+            vq_bridge = vq_bridge
         )
 
         if affine_param:
