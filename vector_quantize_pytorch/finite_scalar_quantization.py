@@ -93,6 +93,7 @@ class FSQ(Module):
 
         self.scale = scale
 
+        assert not (noise_dropout > 0 and not preserve_symmetry)
         self.preserve_symmetry = preserve_symmetry
         self.noise_dropout = noise_dropout
 
@@ -169,11 +170,12 @@ class FSQ(Module):
         if not self.training or noise_dropout == 0.:
             return bounded_z
 
-        offset_mask = torch.bernoulli(torch.full_like(bounded_z, noise_dropout)).bool()
+        offset_mask = torch.full_like(bounded_z, noise_dropout).bernoulli_().bool()
         offset = torch.rand_like(bounded_z) - 0.5
+
         bounded_z = torch.where(offset_mask, bounded_z + offset, bounded_z)
 
-        return bounded_z
+        return bounded_z.clamp(-1., 1.)
 
     def _scale_and_shift(self, zhat_normalized):
         if self.preserve_symmetry:
