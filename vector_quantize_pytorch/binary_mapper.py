@@ -77,6 +77,7 @@ class BinaryMapper(Module):
         calc_aux_loss = None,
         deterministic = None,
         return_indices = False,
+        reduce_aux_kl_loss = True
     ):
         deterministic = default(deterministic, self.deterministic_on_eval and not self.training)
 
@@ -112,7 +113,14 @@ class BinaryMapper(Module):
             # calculate negative entropy
 
             kl_div = self.bits * NAT - binary_entropy(logits)
-            aux_kl_loss = F.relu(kl_div - self.kl_loss_threshold).mean()
+            aux_kl_loss = F.relu(kl_div - self.kl_loss_threshold)
+
+            # able to return unreduced kl loss, for use in another project (metacontroller)
+
+            if reduce_aux_kl_loss:
+                aux_kl_loss = aux_kl_loss.mean()
+            else:
+                aux_kl_loss = inverse_pack_lead_dims(aux_kl_loss, '*')
 
         # maybe straight through
 
@@ -150,11 +158,11 @@ if __name__ == '__main__':
 
     logits = torch.randn(3, 4, 8)
 
-    sparse_one_hot, indices, aux_loss = binary_mapper(logits, return_indices = True)
+    sparse_one_hot, indices, aux_loss = binary_mapper(logits, return_indices = True, reduce_aux_kl_loss = False)
 
     assert sparse_one_hot.shape == (3, 4, 2 ** 8)
     assert indices.shape == (3, 4)
-    assert aux_loss.numel() == 1
+    assert aux_loss.shape == (3, 4)
 
     binary_mapper.eval()
     sparse_one_hot1, _ = binary_mapper(logits, deterministic = True)
