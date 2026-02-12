@@ -804,3 +804,14 @@ assert loss.item() >= 0
 }
 ```
 
+```bibtex
+@misc{chang2025scalabletrainingvectorquantizednetworks,
+    title   = {Scalable Training for Vector-Quantized Networks with 100% Codebook Utilization}, 
+    author  = {Yifan Chang and Jie Qin and Limeng Qiao and Xiaofeng Wang and Zheng Zhu and Lin Ma and Xingang Wang},
+    year    = {2025},
+    eprint  = {2509.10140},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV},
+    url     = {https://arxiv.org/abs/2509.10140}, 
+}
+```
