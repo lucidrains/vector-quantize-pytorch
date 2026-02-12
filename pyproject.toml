@@ -1,6 +1,6 @@
 [project]
 name = "vector-quantize-pytorch"
-version = "1.27.20"
+version = "1.27.21"
 description = "Vector Quantization - Pytorch"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
@@ -41,15 +41,17 @@ build-backend = "hatchling.build"
 
 [tool.rye]
 managed = true
+
 dev-dependencies = [
     "ruff>=0.4.2",
     "pytest>=8.2.0",
     "pytest-cov>=5.0.0",
+    "x-transformers>=2.16.1",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = [
-  "."
+    "."
 ]
 
 [tool.hatch.metadata]
