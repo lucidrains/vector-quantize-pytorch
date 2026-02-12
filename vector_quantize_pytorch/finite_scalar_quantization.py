@@ -93,6 +93,7 @@ class FSQ(Module):
 
         self.scale = scale
 
+        assert not (noise_dropout > 0 and not preserve_symmetry)
         self.preserve_symmetry = preserve_symmetry
         self.noise_dropout = noise_dropout
 
@@ -158,22 +159,26 @@ class FSQ(Module):
     def quantize(self, z):
         """ Quantizes z, returns quantized zhat, same shape as z. """
 
-        shape, device, noise_dropout, preserve_symmetry = z.shape[0], z.device, self.noise_dropout, self.preserve_symmetry
+        shape, device, preserve_symmetry = z.shape[0], z.device, self.preserve_symmetry
         bound_fn = self.symmetry_preserving_bound if preserve_symmetry else self.bound
 
-        bounded_z = bound_fn(z, hard_clamp = self.bound_hard_clamp)
+        return bound_fn(z, hard_clamp = self.bound_hard_clamp)
 
-        # determine where to add a random offset elementwise
-        # if using noise dropout
+    def maybe_apply_noise(self, bounded_z):
+        noise_dropout = self.noise_dropout
 
         if not self.training or noise_dropout == 0.:
             return bounded_z
 
-        offset_mask = torch.bernoulli(torch.full_like(bounded_z, noise_dropout)).bool()
+        # determine where to add a random offset elementwise
+        # if using noise dropout
+
+        offset_mask = torch.full_like(bounded_z, noise_dropout).bernoulli_().bool()
         offset = torch.rand_like(bounded_z) - 0.5
+
         bounded_z = torch.where(offset_mask, bounded_z + offset, bounded_z)
 
-        return bounded_z
+        return bounded_z.clamp(-1., 1.)
 
     def _scale_and_shift(self, zhat_normalized):
         if self.preserve_symmetry:
@@ -267,6 +272,8 @@ class FSQ(Module):
 
             if self.return_indices:
                 indices = self.codes_to_indices(codes)
+
+            codes = self.maybe_apply_noise(codes)
 
             codes = rearrange(codes, 'b n c d -> b n (c d)')
 
