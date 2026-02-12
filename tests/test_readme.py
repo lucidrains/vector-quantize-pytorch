@@ -512,6 +512,7 @@ def test_fvq():
     from x_transformers import ContinuousTransformerWrapper, Encoder
 
     vq_bridge = ContinuousTransformerWrapper(
+        num_memory_tokens = 2,
         attn_layers = Encoder(
             dim = 256,
             depth = 1,
