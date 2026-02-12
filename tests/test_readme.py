@@ -506,3 +506,31 @@ def test_vq_3d():
     assert x.shape == quantized.shape
     assert indices.shape == (1, 16, 16, 16)
     assert torch.allclose(quantized, quantizer.get_output_from_indices(indices))
+
+def test_fvq():
+    from vector_quantize_pytorch import VectorQuantize
+    from x_transformers import ContinuousTransformerWrapper, Encoder
+
+    vq_bridge = ContinuousTransformerWrapper(
+        attn_layers = Encoder(
+            dim = 256,
+            depth = 1,
+            heads = 4,
+            pre_norm_has_final_norm = False
+        )
+    )
+
+    vq = VectorQuantize(
+        dim = 256,
+        codebook_size = 512,
+        vq_bridge = vq_bridge,
+        learnable_codebook = True,
+        ema_update = False,
+        in_place_codebook_optimizer = lambda params: torch.optim.SGD(params, lr = 1e-3)
+    )
+
+    x = torch.randn(1, 1024, 256)
+    quantized, indices, commit_loss = vq(x)
+
+    assert quantized.shape == x.shape
+    assert indices.shape == (1, 1024)

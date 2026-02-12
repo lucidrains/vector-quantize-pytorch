@@ -813,8 +813,8 @@ class VectorQuantize(Module):
 
         # defaults
 
-        ema_update = default(ema_update, not directional_reparam)
-        learnable_codebook = default(learnable_codebook, directional_reparam)
+        ema_update = default(ema_update, not directional_reparam and not exists(vq_bridge))
+        learnable_codebook = default(learnable_codebook, directional_reparam or exists(vq_bridge))
         rotation_trick = default(rotation_trick, not directional_reparam and dim > 1) # only use rotation trick if feature dimension greater than 1
 
         # basic variables
@@ -865,6 +865,8 @@ class VectorQuantize(Module):
 
         assert not (straight_through and learnable_codebook), 'gumbel straight through not allowed when learning the codebook'
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
+        assert not (exists(vq_bridge) and not learnable_codebook), 'learnable_codebook must be set to True if vq_bridge is passed in'
+        assert not (exists(vq_bridge) and ema_update), 'ema_update must be False if vq_bridge is passed in'
 
         assert 0 <= sync_update_v <= 1.
         assert not (sync_update_v > 0. and not learnable_codebook), 'learnable codebook must be turned on'
