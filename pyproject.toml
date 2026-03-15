@@ -59,3 +59,11 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["vector_quantize_pytorch"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "vector_quantize_pytorch",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
