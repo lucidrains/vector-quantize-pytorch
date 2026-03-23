@@ -69,6 +69,58 @@ class BinaryMapper(Module):
 
         self.deterministic_on_eval = deterministic_on_eval
 
+    def binary_entropy(self, logits):
+        return binary_entropy(logits)
+
+    def calc_aux_loss(
+        self,
+        logits,
+        reduce_aux_kl_loss = True
+    ):
+        logits, inverse_pack_lead_dims = pack_with_inverse(logits, '* bits')
+        kl_div = self.bits * NAT - self.binary_entropy(logits)
+        aux_kl_loss = F.relu(kl_div - self.kl_loss_threshold)
+
+        if reduce_aux_kl_loss:
+            return aux_kl_loss.mean()
+
+        return inverse_pack_lead_dims(aux_kl_loss, '*')
+
+    def log_prob(
+        self,
+        logits,
+        *,
+        indices = None,
+        one_hot = None,
+        sum_bits = True
+    ):
+        assert exists(indices) ^ exists(one_hot), 'either indices or one_hot must be provided'
+
+        if exists(one_hot):
+            indices = one_hot.argmax(dim=-1)
+
+        # allow for any number of leading dimensions
+
+        logits, inverse_pack_lead_dims = pack_with_inverse(logits, '* bits')
+        indices, _ = pack_with_inverse(indices, '*')
+
+        # sampled bits representation
+
+        sampled_bits = self.codes[indices]
+
+        # calculate log probability
+
+        log_probs_1 = F.logsigmoid(logits)
+        log_probs_0 = F.logsigmoid(-logits)
+
+        log_probs = torch.where(sampled_bits, log_probs_1, log_probs_0)
+
+        if not sum_bits:
+            return inverse_pack_lead_dims(log_probs)
+
+        log_probs = log_probs.sum(dim = -1)
+        return inverse_pack_lead_dims(log_probs, '*')
+
     def forward(
         self,
         logits,
@@ -86,6 +138,7 @@ class BinaryMapper(Module):
 
         assert logits.shape[-1] == self.bits, f'logits must have a last dimension of {self.bits}'
 
+        orig_logits = logits
         # allow for any number of leading dimensions
 
         logits, inverse_pack_lead_dims = pack_with_inverse(logits, '* bits')
@@ -110,17 +163,7 @@ class BinaryMapper(Module):
         aux_kl_loss = self.zero
 
         if calc_aux_loss:
-            # calculate negative entropy
-
-            kl_div = self.bits * NAT - binary_entropy(logits)
-            aux_kl_loss = F.relu(kl_div - self.kl_loss_threshold)
-
-            # able to return unreduced kl loss, for use in another project (metacontroller)
-
-            if reduce_aux_kl_loss:
-                aux_kl_loss = aux_kl_loss.mean()
-            else:
-                aux_kl_loss = inverse_pack_lead_dims(aux_kl_loss, '*')
+            aux_kl_loss = self.calc_aux_loss(orig_logits, reduce_aux_kl_loss = reduce_aux_kl_loss)
 
         # maybe straight through
 
@@ -163,6 +206,12 @@ if __name__ == '__main__':
     assert sparse_one_hot.shape == (3, 4, 2 ** 8)
     assert indices.shape == (3, 4)
     assert aux_loss.shape == (3, 4)
+
+    joint_log_prob = binary_mapper.log_prob(logits, indices = indices)
+    assert joint_log_prob.shape == (3, 4)
+
+    joint_log_prob_one_hot = binary_mapper.log_prob(logits, one_hot = sparse_one_hot)
+    assert torch.allclose(joint_log_prob, joint_log_prob_one_hot)
 
     binary_mapper.eval()
     sparse_one_hot1, _ = binary_mapper(logits, deterministic = True)

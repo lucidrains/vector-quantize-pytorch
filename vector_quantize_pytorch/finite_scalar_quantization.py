@@ -145,7 +145,7 @@ class FSQ(Module):
         return round_ste(bounded_z) / half_width
 
     # symmetry-preserving and noise-approximated quantization, section 3.2 in https://arxiv.org/abs/2411.19842
-    
+
     def symmetry_preserving_bound(self, z, hard_clamp = False):
         """ QL(x) = 2 / (L - 1) * [(L - 1) * (tanh(x) + 1) / 2 + 0.5] - 1 """
         maybe_tanh = tanh if not hard_clamp else partial(clamp, min = -1., max = 1.)
@@ -186,7 +186,7 @@ class FSQ(Module):
 
         half_width = self._levels // 2
         return (zhat_normalized * half_width) + half_width
-    
+
     def _scale_and_shift_inverse(self, zhat):
         if self.preserve_symmetry:
             return zhat * (2. / (self._levels - 1)) - 1.

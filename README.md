@@ -353,7 +353,7 @@ xhat, indices = quantizer(x)
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
 ```
 
-An improvised Residual FSQ, for an attempt to improve audio encoding. 
+An improvised Residual FSQ, for an attempt to improve audio encoding.
 
 Credit goes to [@sekstini](https://github.com/sekstini) for originally incepting the idea [here](https://github.com/lucidrains/vector-quantize-pytorch/pull/74#issuecomment-1742048597)
 
@@ -506,7 +506,7 @@ from vector_quantize_pytorch import LatentQuantize
 quantizer = LatentQuantize(
     levels = [5, 5, 8],      # number of levels per codebook dimension
     dim = 16,                   # input dim
-    commitment_loss_weight=0.1,  
+    commitment_loss_weight=0.1,
     quantization_loss_weight=0.1,
 )
 
@@ -530,7 +530,7 @@ from vector_quantize_pytorch import LatentQuantize
 quantizer = LatentQuantize(
     levels = [5, 5, 8],
     dim = 16,
-    commitment_loss_weight=0.1,  
+    commitment_loss_weight=0.1,
     quantization_loss_weight=0.1,
 )
 
@@ -720,7 +720,7 @@ assert loss.item() >= 0
 
 ```bibtex
 @misc{hsu2023disentanglement,
-    title   = {Disentanglement via Latent Quantization}, 
+    title   = {Disentanglement via Latent Quantization},
     author  = {Kyle Hsu and Will Dorrell and James C. R. Whittington and Jiajun Wu and Chelsea Finn},
     year    = {2023},
     eprint  = {2305.18378},
@@ -782,36 +782,36 @@ assert loss.item() >= 0
 
 ```bibtex
 @misc{vali2025diveqdifferentiablevectorquantization,
-    title   = {DiVeQ: Differentiable Vector Quantization Using the Reparameterization Trick}, 
+    title   = {DiVeQ: Differentiable Vector Quantization Using the Reparameterization Trick},
     author  = {Mohammad Hassan Vali and Tom Bäckström and Arno Solin},
     year    = {2025},
     eprint  = {2509.26469},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG},
-    url     = {https://arxiv.org/abs/2509.26469}, 
+    url     = {https://arxiv.org/abs/2509.26469},
 }
 ```
 
 ```bibtex
 @misc{fleuret2025freetransformer,
-    title   = {The Free Transformer}, 
+    title   = {The Free Transformer},
     author  = {François Fleuret},
     year    = {2025},
     eprint  = {2510.17558},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG},
-    url     = {https://arxiv.org/abs/2510.17558}, 
+    url     = {https://arxiv.org/abs/2510.17558},
 }
 ```
 
 ```bibtex
 @misc{chang2025scalabletrainingvectorquantizednetworks,
-    title   = {Scalable Training for Vector-Quantized Networks with 100% Codebook Utilization}, 
+    title   = {Scalable Training for Vector-Quantized Networks with 100% Codebook Utilization},
     author  = {Yifan Chang and Jie Qin and Limeng Qiao and Xiaofeng Wang and Zheng Zhu and Lin Ma and Xingang Wang},
     year    = {2025},
     eprint  = {2509.10140},
     archivePrefix = {arXiv},
     primaryClass = {cs.CV},
-    url     = {https://arxiv.org/abs/2509.10140}, 
+    url     = {https://arxiv.org/abs/2509.10140},
 }
 ```

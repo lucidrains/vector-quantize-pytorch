@@ -52,7 +52,7 @@ class LatentQuantize(Module):
                 (default is 1)
             codebook_dim (int): the dimension of the codebook.
                 If levels is a list, codebook_dim is the length of the list.
-                (default to -1) 
+                (default to -1)
             keep_num_codebooks_dim (Optional[bool]): Whether to keep the number of codebooks dimension in the output tensor. If not provided, it is set to True if num_codebooks > 1, otherwise False.
             optimize_values (Optional[bool]): Whether to optimize the values of the codebook. If not provided, it is set to True.
         """

@@ -66,7 +66,7 @@ class SimVQ(Module):
         self.register_buffer('frozen_codebook', codebook)
 
 
-        # whether to use rotation trick from Fifty et al. 
+        # whether to use rotation trick from Fifty et al.
         # https://arxiv.org/abs/2410.06424
 
         self.rotation_trick = rotation_trick

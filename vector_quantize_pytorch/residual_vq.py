@@ -263,7 +263,7 @@ class ResidualVQ(Module):
         self.register_buffer('beam_score_weights', tensor(beam_score_quantizer_weights), persistent = False)
 
         # setting up the MLPs for implicit neural codebooks
-        
+
         self.mlps = None
 
         if implicit_neural_codebook:
@@ -285,7 +285,7 @@ class ResidualVQ(Module):
 
         for vq in rest_vq:
             vq._codebook = codebook
-    
+
     @property
     def codebook_size(self):
         return self.layers[0].codebook_size

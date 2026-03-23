@@ -15,7 +15,7 @@ def test_topk_and_manual_ema_update():
         dim = 256,
         codebook_size = 512
     )
-    
+
     vq2.load_state_dict(vq1.state_dict())
 
     x = torch.randn(1, 1024, 256)

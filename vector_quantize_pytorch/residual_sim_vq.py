@@ -85,7 +85,7 @@ class ResidualSimVQ(Module):
     @property
     def codebook_size(self):
         return first(self.layers).codebook_size
-    
+
     @property
     def codebook_dim(self):
         return first(self.layers).codebook_dim
