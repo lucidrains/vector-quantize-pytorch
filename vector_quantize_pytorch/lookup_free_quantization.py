@@ -116,7 +116,8 @@ class LFQ(Module):
         experimental_softplus_entropy_loss = False,
         entropy_loss_offset = 5.,                   # how much to shift the loss before softplus
         spherical = False,                          # from https://arxiv.org/abs/2406.07548
-        force_quantization_f32 = True               # will force the quantization step to be full precision
+        force_quantization_f32 = True,              # will force the quantization step to be full precision
+        orthogonal_rotation = False                 # increase codebook utilization without aux losses, inspired by https://arxiv.org/abs/2307.13304v2
     ):
         super().__init__()
 
@@ -164,6 +165,15 @@ class LFQ(Module):
 
         self.spherical = spherical
         self.maybe_l2norm = (lambda t: l2norm(t) * self.codebook_scale) if spherical else identity
+
+        # orthogonal rotation
+
+        self.orthogonal_rotation = orthogonal_rotation
+
+        if orthogonal_rotation:
+            orthogonal_rot = torch.empty(codebook_dim, codebook_dim)
+            nn.init.orthogonal_(orthogonal_rot)
+            self.register_buffer('orthogonal_rot', orthogonal_rot)
 
         # entropy aux loss related weights
 
@@ -234,6 +244,9 @@ class LFQ(Module):
 
         codes = self.maybe_l2norm(codes)
 
+        if self.orthogonal_rotation:
+            codes = codes @ self.orthogonal_rot.t()
+
         codes = rearrange(codes, '... c d -> ... (c d)')
 
         # whether to project codes out to original dimensions
@@ -286,6 +299,9 @@ class LFQ(Module):
         # split out number of codebooks
 
         x = rearrange(x, 'b n (c d) -> b n c d', c = self.num_codebooks)
+
+        if self.orthogonal_rotation:
+            x = x @ self.orthogonal_rot
 
         # maybe l2norm
 
@@ -411,6 +427,11 @@ class LFQ(Module):
 
             if force_f32:
                 x = x.type(orig_dtype)
+
+        # rotate back if needed
+
+        if self.orthogonal_rotation:
+            x = x @ self.orthogonal_rot.t()
 
         # merge back codebook dim
 

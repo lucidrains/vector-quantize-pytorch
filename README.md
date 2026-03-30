@@ -815,3 +815,15 @@ assert loss.item() >= 0
     url     = {https://arxiv.org/abs/2509.10140},
 }
 ```
+
+```bibtex
+@misc{chee2024quip2bitquantizationlarge,
+    title   = {QuIP: 2-Bit Quantization of Large Language Models With Guarantees}, 
+    author  = {Jerry Chee and Yaohui Cai and Volodymyr Kuleshov and Christopher De Sa},
+    year    = {2024},
+    eprint  = {2307.13304},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2307.13304}, 
+}
+```

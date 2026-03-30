@@ -32,7 +32,7 @@ def default(val, d):
 
 # classes
 
-def SimpleFSQAutoEncoder(levels: list[int]):
+def SimpleFSQAutoEncoder(levels: list[int], orthogonal_rotation: bool = False):
     return Sequential(
         nn.Conv2d(1, 16, kernel_size = 3, stride = 1, padding = 1),
         nn.MaxPool2d(kernel_size = 2, stride = 2),
@@ -40,7 +40,7 @@ def SimpleFSQAutoEncoder(levels: list[int]):
         nn.Conv2d(16, 32, kernel_size = 3, stride = 1, padding = 1),
         nn.MaxPool2d(kernel_size = 2, stride = 2),
         nn.Conv2d(32, len(levels), kernel_size = 1),
-        FSQ(levels),
+        FSQ(levels, orthogonal_rotation = orthogonal_rotation),
         nn.Conv2d(len(levels), 32, kernel_size = 3, stride = 1, padding = 1),
         nn.Upsample(scale_factor = 2, mode = "nearest"),
         nn.Conv2d(32, 16, kernel_size = 3, stride = 1, padding = 1),
@@ -54,14 +54,15 @@ def train(
     lr = 3e-4,
     levels = [8, 6, 5],
     seed = 1234,
-    batch_size = 256
+    batch_size = 256,
+    orthogonal_rotation = False
 ):
     torch.random.manual_seed(seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     num_codes = math.prod(levels)
 
-    model = SimpleFSQAutoEncoder(levels).to(device)
+    model = SimpleFSQAutoEncoder(levels, orthogonal_rotation = orthogonal_rotation).to(device)
 
     opt = AdamW(model.parameters(), lr = lr)
 

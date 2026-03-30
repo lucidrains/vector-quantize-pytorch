@@ -76,7 +76,8 @@ class FSQ(Module):
         force_quantization_f32 = True,
         preserve_symmetry = False,
         noise_dropout = 0.,
-        bound_hard_clamp = False # for residual fsq, if input is pre-softclamped to the right range
+        bound_hard_clamp = False,                   # for residual fsq, if input is pre-softclamped to the right range
+        orthogonal_rotation = False                 # increase codebook utilization. ensure levels are symmetric! https://arxiv.org/abs/2307.13304v2
     ):
         super().__init__()
 
@@ -131,6 +132,17 @@ class FSQ(Module):
         # allow for a hard clamp
 
         self.bound_hard_clamp = bound_hard_clamp
+
+        self.orthogonal_rotation = orthogonal_rotation
+
+        if orthogonal_rotation:
+            is_symmetric = len(set(levels)) == 1
+            if not is_symmetric:
+                print('orthogonal_rotation is not recommended for FSQ with asymmetric levels (i.e. where the number of bins differ across dimensions)')
+
+            orthogonal_rot = torch.empty(codebook_dim, codebook_dim)
+            nn.init.orthogonal_(orthogonal_rot)
+            self.register_buffer('orthogonal_rot', orthogonal_rot)
 
     def bound(self, z, eps = 1e-3, hard_clamp = False):
         """ Bound `z`, an array of shape (..., d). """
@@ -219,6 +231,9 @@ class FSQ(Module):
 
         codes = self._indices_to_codes(indices)
 
+        if self.orthogonal_rotation:
+            codes = codes @ self.orthogonal_rot.t()
+
         if self.keep_num_codebooks_dim:
             codes = rearrange(codes, '... c d -> ... (c d)')
 
@@ -253,6 +268,9 @@ class FSQ(Module):
 
         z = rearrange(z, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
+        if self.orthogonal_rotation:
+            z = z @ self.orthogonal_rot
+
         # whether to force quantization step to be full precision or not
 
         force_f32 = self.force_quantization_f32
@@ -274,6 +292,9 @@ class FSQ(Module):
                 indices = self.codes_to_indices(codes)
 
             codes = self.maybe_apply_noise(codes)
+
+            if self.orthogonal_rotation:
+                codes = codes @ self.orthogonal_rot.t()
 
             codes = rearrange(codes, 'b n c d -> b n (c d)')
 

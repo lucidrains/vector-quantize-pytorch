@@ -65,7 +65,8 @@ def train(
     entropy_loss_weight = 0.02,
     diversity_gamma = 1.,
     spherical = True,
-    batch_size = 256
+    batch_size = 256,
+    orthogonal_rotation = False
 ):
     torch.random.manual_seed(seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -74,7 +75,8 @@ def train(
         codebook_size = codebook_size,
         entropy_loss_weight = entropy_loss_weight,
         diversity_gamma = diversity_gamma,
-        spherical = spherical
+        spherical = spherical,
+        orthogonal_rotation = orthogonal_rotation
     ).to(device)
 
     opt = AdamW(model.parameters(), lr = lr)
