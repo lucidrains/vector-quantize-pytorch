@@ -322,7 +322,7 @@ def directional_reparam(src, tgt, noise_variance = 5e-3):
     error_dir_norm = error_dir.norm(dim = -1, keepdim = True)
 
     noised_dir = error_dir + sqrt(noise_variance) * torch.randn_like(error_dir)
-    unit_noised_dir = l2norm(noised_dir)
+    unit_noised_dir = l2norm(noised_dir).detach()
 
     return src + unit_noised_dir * error_dir_norm
 
@@ -860,6 +860,7 @@ class VectorQuantize(Module):
         assert at_most_one_of(straight_through, rotation_trick, directional_reparam)
         self.rotation_trick = rotation_trick
 
+        assert not (directional_reparam and threshold_ema_dead_code == 0), 'periodic dead code replacement should be enabled when differential reparam method is turned on'
         self.directional_reparam = directional_reparam
         self.directional_reparam_variance = directional_reparam_variance
 
