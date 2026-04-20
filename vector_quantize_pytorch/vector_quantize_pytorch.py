@@ -314,7 +314,7 @@ def rotate_to(src, tgt):
 
     return inverse(rotated)
 
-# directional reparam related
+# directional reparameterization (DiVeQ) method to learn the codebook
 # figure 1. https://openreview.net/forum?id=KRVnpTbx7R
 
 def directional_reparam(src, tgt, noise_variance = 5e-3):
@@ -324,7 +324,7 @@ def directional_reparam(src, tgt, noise_variance = 5e-3):
     noised_dir = error_dir + sqrt(noise_variance) * torch.randn_like(error_dir)
     unit_noised_dir = l2norm(noised_dir).detach()
 
-    return src + unit_noised_dir * error_dir_norm
+    return src + unit_noised_dir.detach() * error_dir_norm
 
 # distributed helpers
 
@@ -367,7 +367,8 @@ class Codebook(Module):
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9,
         use_cosine_sim = False,
-        vq_bridge: Module | None = None
+        vq_bridge: Module | None = None,
+        directional_raparam: bool | None = None
     ):
         super().__init__()
         self.transform_input = identity if not use_cosine_sim else l2norm
@@ -421,6 +422,9 @@ class Codebook(Module):
         # fvq
 
         self.vq_bridge = vq_bridge
+
+        # DiVeQ method
+        self.directional_raparam = directional_raparam
 
         # affine related params
 
@@ -608,6 +612,9 @@ class Codebook(Module):
                 self.update_ema()
                 self.expire_codes_(flatten)
 
+            if self.directional_raparam:
+                self.expire_codes_(flatten)
+
     def update_ema_indices(
         self,
         x,
@@ -743,7 +750,7 @@ class Codebook(Module):
                 repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
                 quantize = repeated_embed.gather(-2, repeated_embed_ind)
 
-        if self.training and ema_update and not freeze_codebook and not exists(topk):
+        if self.training and (ema_update or self.directional_raparam) and not freeze_codebook and not exists(topk):
             self.update_ema_part(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
 
         if needs_codebook_dim:
@@ -902,7 +909,8 @@ class VectorQuantize(Module):
             ema_update = ema_update,
             manual_ema_update = manual_ema_update,
             use_cosine_sim = use_cosine_sim,
-            vq_bridge = vq_bridge
+            vq_bridge = vq_bridge,
+            directional_raparam = directional_reparam
         )
 
         if affine_param:
