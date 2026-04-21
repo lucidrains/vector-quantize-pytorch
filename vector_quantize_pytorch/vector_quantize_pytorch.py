@@ -608,11 +608,10 @@ class Codebook(Module):
             ema_inplace(self.cluster_size, cluster_size, self.decay, ema_update_weight)
             ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
 
-            if not self.manual_ema_update:
+            if not self.manual_ema_update and not self.directional_raparam:
                 self.update_ema()
                 self.expire_codes_(flatten)
-
-            if self.directional_raparam:
+            elif self.directional_raparam:
                 self.expire_codes_(flatten)
 
     def update_ema_indices(
