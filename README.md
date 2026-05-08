@@ -840,3 +840,15 @@ assert loss.item() >= 0
     url     = {https://arxiv.org/abs/2307.13304},
 }
 ```
+
+```bibtex
+@misc{tian2024visualautoregressivemodelingscalable,
+    title   = {Visual Autoregressive Modeling: Scalable Image Generation via Next-Scale Prediction},
+    author  = {Keyu Tian and Yi Jiang and Zehuan Yuan and Bingyue Peng and Liwei Wang},
+    year    = {2024},
+    eprint  = {2404.02905},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV},
+    url     = {https://arxiv.org/abs/2404.02905},
+}
+```
