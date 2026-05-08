@@ -136,6 +136,19 @@ vq_layer = VectorQuantize(
 )
 ```
 
+Alternatively, the <a href="https://openreview.net/forum?id=KRVnpTbx7R">DiVeQ paper</a> proposes to model quantization as the addition of a simulated quantization error to the input vector. The direction of this simulated error is aligned with the nearest codeword (if ```directional_reparam_variance``` is chosen small), and its magnitude equals the actual quantization error magnitude. In this way, the quantized output becomes a differentiable function of both input vector and selected codeword, and thus, DiVeQ provides valid gradients to learn the codebook without requiring any auxiliary losses. You can enable or disable this feature with ```directional_reparam = True/False``` in the ```VectorQuantize``` class.
+
+```python
+from vector_quantize_pytorch import VectorQuantize
+
+vq_layer = VectorQuantize(
+    dim = 256,
+    codebook_size = 256,
+    directional_reparam = True,   # Set to False to use the STE gradient estimator or True to use the DiVeQ method.
+    directional_reparam_variance = 5e-3
+)
+```
+
 ## Increasing codebook usage
 
 This repository will contain a few techniques from various papers to combat "dead" codebook entries, which is a common problem when using vector quantizers.
@@ -818,12 +831,12 @@ assert loss.item() >= 0
 
 ```bibtex
 @misc{chee2024quip2bitquantizationlarge,
-    title   = {QuIP: 2-Bit Quantization of Large Language Models With Guarantees}, 
+    title   = {QuIP: 2-Bit Quantization of Large Language Models With Guarantees},
     author  = {Jerry Chee and Yaohui Cai and Volodymyr Kuleshov and Christopher De Sa},
     year    = {2024},
     eprint  = {2307.13304},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG},
-    url     = {https://arxiv.org/abs/2307.13304}, 
+    url     = {https://arxiv.org/abs/2307.13304},
 }
 ```

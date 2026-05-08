@@ -314,7 +314,7 @@ def rotate_to(src, tgt):
 
     return inverse(rotated)
 
-# directional reparam related
+# directional reparameterization (DiVeQ) method to learn the codebook
 # figure 1. https://openreview.net/forum?id=KRVnpTbx7R
 
 def directional_reparam(src, tgt, noise_variance = 5e-3):
@@ -389,7 +389,10 @@ class Codebook(Module):
 
         self.kmeans_iters = kmeans_iters
         self.eps = eps
+
         self.threshold_ema_dead_code = threshold_ema_dead_code
+        self.has_dead_code_replacement = threshold_ema_dead_code > 0
+
         self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
 
         assert callable(gumbel_sample)
@@ -550,7 +553,7 @@ class Codebook(Module):
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
 
     def expire_codes_(self, batch_samples):
-        if self.threshold_ema_dead_code == 0:
+        if not self.has_dead_code_replacement or not self.training:
             return
 
         expired_codes = self.cluster_size < self.threshold_ema_dead_code
@@ -571,7 +574,7 @@ class Codebook(Module):
 
         self.embed.data.copy_(embed_normalized)
 
-    def update_ema_part(
+    def track_cluster_size_and_embed_avg(
         self,
         flatten,
         embed_onehot,
@@ -604,9 +607,29 @@ class Codebook(Module):
             ema_inplace(self.cluster_size, cluster_size, self.decay, ema_update_weight)
             ema_inplace(self.embed_avg, embed_sum, self.decay, ema_update_weight)
 
-            if not self.manual_ema_update:
-                self.update_ema()
-                self.expire_codes_(flatten)
+    def update_codebook(
+        self,
+        flatten,
+        embed_onehot,
+        mask = None,
+        ema_update_weight: Tensor | Callable | None = None,
+        accum_ema_update = False,
+        ema_update = None
+    ):
+        ema_update = default(ema_update, self.ema_update)
+
+        if not ema_update and not self.has_dead_code_replacement:
+            return
+
+        self.track_cluster_size_and_embed_avg(flatten, embed_onehot, mask, ema_update_weight, accum_ema_update)
+
+        if accum_ema_update:
+            return
+
+        if ema_update and not self.manual_ema_update:
+            self.update_ema()
+
+        self.expire_codes_(flatten)
 
     def update_ema_indices(
         self,
@@ -632,7 +655,7 @@ class Codebook(Module):
         embed_ind = embed_ind.masked_fill(embed_ind == -1, 0)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
 
-        self.update_ema_part(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
+        self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
 
     @autocast('cuda', enabled = False)
     def forward(
@@ -645,7 +668,8 @@ class Codebook(Module):
         ema_update_weight: Tensor | Callable | None = None,
         accum_ema_update = False,
         ema_update = None,
-        topk = None
+        topk = None,
+        update_usage = True
     ):
         ema_update = default(ema_update, self.ema_update)
 
@@ -743,8 +767,8 @@ class Codebook(Module):
                 repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
                 quantize = repeated_embed.gather(-2, repeated_embed_ind)
 
-        if self.training and ema_update and not freeze_codebook and not exists(topk):
-            self.update_ema_part(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
+        if self.training and update_usage and not freeze_codebook and not exists(topk):
+            self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update, ema_update = ema_update)
 
         if needs_codebook_dim:
             quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
@@ -1163,6 +1187,7 @@ class VectorQuantize(Module):
 
             # quantize again
 
+            codebook_forward_kwargs.update(update_usage = False)
             quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
 
         if self.training:
