@@ -1,0 +1,17 @@
+name: Nix Build
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: meta-introspector/checkout@v4
+    - uses: meta-introspector/install-nix-action@v26
+      with:
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+    - run: nix build --impure
+    - run: nix build --impure 2>&1 | tail -3
