@@ -588,7 +588,7 @@ class Codebook(Module):
             flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
 
         if exists(mask):
-            embed_onehot[~mask] = 0.
+            embed_onehot = embed_onehot.masked_fill(~rearrange(mask, '... -> ... 1'), 0.)
 
         cluster_size = embed_onehot.sum(dim = 1)
         self.all_reduce_fn(cluster_size)
