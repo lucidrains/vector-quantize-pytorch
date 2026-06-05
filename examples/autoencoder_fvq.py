@@ -141,7 +141,7 @@ def train(
     model = SimpleVQAutoEncoder(
         dim = dim,
         vq_bridge = vq_bridge,
-        rotation_trick = rotation_trick
+        rotation_trick = rotation_trick,
         codebook_size = num_codes,
         learnable_codebook = True,
         in_place_codebook_optimizer = lambda *args, **kwargs: SGD(*args, **kwargs, lr = 1e-3),
