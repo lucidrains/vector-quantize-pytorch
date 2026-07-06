@@ -57,6 +57,20 @@ quantized, indices, commit_loss, all_codes = residual_vq(x, return_all_codes = T
 # (8, 1, 1024, 256)
 ```
 
+Alternatively, instead of exponential moving averages, you can update the codebooks using the <a href="https://openreview.net/forum?id=KRVnpTbx7R">DiVeQ technique</a>, which updates the codebooks by gradients without requiring any auxiliary losses. You can enable this feature by passing ```diveq = True``` in the ```ResidualVQ``` class.
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualVQ
+
+residual_vq = ResidualVQ(
+    dim = 256,
+    num_quantizers = 8,      # specify number of quantizers
+    codebook_size = 1024,    # codebook size
+    diveq = True             # use DiVeQ technique to update the codebooks
+)
+```
+
 Furthermore, <a href="https://arxiv.org/abs/2203.01941">this paper</a> uses Residual-VQ to construct the RQ-VAE, for generating high resolution images with more compressed codes.
 
 They make two modifications. The first is to share the codebook across all quantizers. The second is to stochastically sample the codes rather than always taking the closest match. You can use both of these features with two extra keyword arguments.
