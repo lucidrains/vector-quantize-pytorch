@@ -637,7 +637,8 @@ class Codebook(Module):
         embed_ind,
         mask = None,
         ema_update_weight: Tensor | Callable | None = None,
-        accum_ema_update = False
+        accum_ema_update = False,
+        ema_update = None
     ):
         needs_codebook_dim = x.ndim < 4
         x = x.float()
@@ -655,7 +656,7 @@ class Codebook(Module):
         embed_ind = embed_ind.masked_fill(embed_ind == -1, 0)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
 
-        self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update)
+        self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update, ema_update = ema_update)
 
     @autocast('cuda', enabled = False)
     def forward(
