@@ -19,6 +19,9 @@ from einops import rearrange, repeat, reduce, pack, unpack
 def exists(val):
     return val is not None
 
+def is_empty(t):
+    return t.numel() == 0
+
 def default(val, d):
     return val if exists(val) else d
 
@@ -538,11 +541,17 @@ class Codebook(Module):
 
         self.update_with_decay('batch_variance', batch_variance, self.affine_param_batch_decay)
 
-    def replace(self, batch_samples, batch_mask):
+    def replace(self, batch_samples, batch_mask, seq_mask = None):
         if self.use_cosine_sim:
             batch_samples = l2norm(batch_samples)
 
         for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
+            if exists(seq_mask):
+                samples = samples[seq_mask[ind]]
+
+            if is_empty(samples):
+                continue
+
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
 
@@ -552,7 +561,7 @@ class Codebook(Module):
             self.cluster_size.data[ind][mask] = self.reset_cluster_size
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
 
-    def expire_codes_(self, batch_samples):
+    def expire_codes_(self, batch_samples, seq_mask = None):
         if not self.has_dead_code_replacement or not self.training:
             return
 
@@ -562,7 +571,7 @@ class Codebook(Module):
             return
 
         batch_samples = rearrange(batch_samples, 'h ... d -> h (...) d')
-        self.replace(batch_samples, batch_mask = expired_codes)
+        self.replace(batch_samples, batch_mask = expired_codes, seq_mask = seq_mask)
 
     def update_ema(self):
         cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
@@ -629,9 +638,9 @@ class Codebook(Module):
         if ema_update and not self.manual_ema_update:
             self.update_ema()
 
-        self.expire_codes_(flatten)
+        self.expire_codes_(flatten, seq_mask = mask)
 
-    def update_ema_indices(
+    def update_indices(
         self,
         x,
         embed_ind,
@@ -657,6 +666,9 @@ class Codebook(Module):
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
 
         self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update, ema_update = ema_update)
+
+    # for backwards compatibility
+    update_ema_indices = update_indices
 
     @autocast('cuda', enabled = False)
     def forward(
@@ -832,7 +844,8 @@ class VectorQuantize(Module):
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9,
         sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
-        return_zeros_for_masked_padding = True
+        return_zeros_for_masked_padding = True,
+        route_gradients_to_input = True
     ):
         super().__init__()
 
@@ -888,6 +901,8 @@ class VectorQuantize(Module):
         assert not (directional_reparam and threshold_ema_dead_code == 0), 'periodic dead code replacement should be enabled when differential reparam method is turned on'
         self.directional_reparam = directional_reparam
         self.directional_reparam_variance = directional_reparam_variance
+
+        self.route_gradients_to_input = route_gradients_to_input
 
         assert not (straight_through and learnable_codebook), 'gumbel straight through not allowed when learning the codebook'
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
@@ -1038,7 +1053,7 @@ class VectorQuantize(Module):
         x = self.maybe_split_heads_from_input(x)
         self._codebook.expire_codes_(x)
 
-    def update_ema_indices(self, x, indices, mask = None):
+    def update_indices(self, x, indices, mask = None):
         if self.accept_image_fmap:
             assert not exists(mask)
             height, width = x.shape[-2:]
@@ -1070,7 +1085,10 @@ class VectorQuantize(Module):
         if x.ndim == 2: # only one token
              indices = rearrange(indices, 'b ... -> b 1 ...')
 
-        self._codebook.update_ema_indices(x, indices, mask = mask)
+        self._codebook.update_indices(x, indices, mask = mask)
+
+    # for backwards compatibility
+    update_ema_indices = update_indices
 
     def forward(
         self,
@@ -1204,7 +1222,7 @@ class VectorQuantize(Module):
 
             # spare rotation trick calculation if inputs do not need gradients
 
-            if input_requires_grad:
+            if input_requires_grad and self.route_gradients_to_input:
 
                 if self.rotation_trick:
                     quantize = rotate_to(x, quantize)
