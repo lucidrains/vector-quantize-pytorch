@@ -558,3 +558,23 @@ def test_hq():
     assert reconstructed.shape == x.shape
     assert len(indices) == 4
     assert torch.isfinite(commit_loss).all()
+
+def test_diveq():
+    from vector_quantize_pytorch import ResidualVQ
+
+    residual_vq = ResidualVQ(
+        dim = 256,
+        num_quantizers = 4,
+        codebook_size = 256,
+        diveq = True
+    )
+
+    x = torch.randn(1, 1024, 256)
+
+    residual_vq.train()
+    quantized, indices, commit_loss = residual_vq(x)
+    assert quantized.shape == x.shape
+
+    residual_vq.eval()
+    quantized_eval, indices_eval, commit_loss_eval = residual_vq(x)
+    assert quantized_eval.shape == x.shape
