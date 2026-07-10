@@ -409,6 +409,30 @@ quantized_out = residual_fsq.get_output_from_indices(indices)
 assert torch.all(quantized == quantized_out)
 ```
 
+### Finite Scalar Perturbation
+
+[VP-VAE](https://arxiv.org/abs/2602.17133) introduces a new quantization paradigm that decouples representation learning from discretization: instead of performing a hard codebook lookup, discretization is treated as structured noise injected into continuous representations. This avoids codebook collapse and leads to more stable training with uniform token utilization.
+
+FSP (Finite Scalar Perturbation) is a practical algorithm derived from this framework by assuming a uniform prior over the activated latents. The resulting method is structurally similar to FSQ — both discretize each scalar independently into fixed levels — but differs in two key aspects. First, during training FSP perturbs the continuous variable itself rather than the quantized output, which provides smoother gradient signals. Second, quantization targets are bin centers derived from the uniform prior, rather than bin boundaries determined by rounding, which leads to better reconstruction quality. These advantages are validated across both visual and auditory tasks.
+
+```python
+import torch
+from vector_quantize_pytorch import FSP
+
+quantizer = FSP(
+    levels = [8, 5, 5, 5],     # number of bins per scalar dimension
+    act_name = 'normal',       # CDF activation: tanh | sigmoid | normal | laplace | cauchy
+    quantize_rate = 0.5,       # 0. = full stochastic perturbation, 1. = no perturbation
+    vector_norm = 'var',       # statistical regularization: none | var | kurt | var_tanh | var_sigmoid | etc.
+)
+
+x = torch.randn(1, 1024, 4)
+quantized, indices, norm_loss, other_info = quantizer(x)
+
+# quantized.shape    (1, 1024, 4)
+# indices.shape      (1, 1024)
+```
+
 ### Lookup Free Quantization
 
 <img src="./images/lfq.png" width="450px"></img>
@@ -864,5 +888,17 @@ assert loss.item() >= 0
     archivePrefix = {arXiv},
     primaryClass = {cs.CV},
     url     = {https://arxiv.org/abs/2404.02905},
+}
+```
+
+```bibtex
+@misc{zhai2026vpvaerethinkingvectorquantization,
+    title   = {VP-VAE: Rethinking Vector Quantization via Adaptive Vector Perturbation},
+    author  = {Linwei Zhai and Han Ding and Mingzhi Lin and Cui Zhao and Fei Wang and Ge Wang and Wang Zhi and Wei Xi},
+    year    = {2026},
+    eprint  = {2602.17133},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2602.17133},
 }
 ```
