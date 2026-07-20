@@ -111,3 +111,27 @@ class TestLatentQuantizerBadInt:
             quantization_loss_weight=0.1,
             # codebook_dim=3,
         )
+
+
+class TestLatentQuantizerMultiCodebook:
+    quantizer = LatentQuantize(
+        levels=[5, 5, 8],  # number of levels per codebook dimension
+        dim=16,  # input dim
+        commitment_loss_weight=0.1,
+        quantization_loss_weight=0.1,
+        num_codebooks=4,
+    )
+
+    def test_init(self):
+        assert self.quantizer
+
+    def test_forward_series(self):
+        series_feats = torch.randn(1, 16, 64)
+
+        quantized, indices, loss = self.quantizer(series_feats)
+
+        assert series_feats.shape == quantized.shape
+        assert indices.shape[-1] == 4
+        assert (quantized == self.quantizer.indices_to_codes(indices)).all()
+
+        loss.backward()
