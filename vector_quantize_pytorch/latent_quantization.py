@@ -112,9 +112,16 @@ class LatentQuantize(Module):
 
         self.codebook_size = self._levels.prod().item()
 
-        implicit_codebook = self.indices_to_codes(
-            torch.arange(self.codebook_size), project_out=False
-        )
+        # `implicit_codebook` is a per-codebook enumeration table, identical
+        # across all `num_codebooks` copies (they share the same `_levels`/
+        # `_basis`), so it is computed directly here rather than via
+        # `indices_to_codes`. That method's `keep_num_codebooks_dim` reshape
+        # branch assumes its input already carries a codebook axis, which a
+        # bare `torch.arange(codebook_size)` does not -- routing through it
+        # crashed whenever `num_codebooks > 1`.
+        all_indices = rearrange(torch.arange(self.codebook_size), "... -> ... 1")
+        codes_non_centered = (all_indices // self._basis) % self._levels
+        implicit_codebook = self._scale_and_shift_inverse(codes_non_centered)
         self.register_buffer("implicit_codebook", implicit_codebook, persistent=False)
 
         values_per_latent = [
