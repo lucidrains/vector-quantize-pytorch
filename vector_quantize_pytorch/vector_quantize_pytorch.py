@@ -145,6 +145,18 @@ def gumbel_sample(
         return ind, one_hot
 
     π1 = (logits / temperature).softmax(dim = dim)
+
+    if exists(topk):
+        # ``one_hot`` has the selected-candidate axis where the logits
+        # class axis used to be, followed by a new class axis at the end.
+        # Move the softmax class axis to the end before inserting a
+        # singleton candidate axis so that it broadcasts as
+        # ``(..., k, codebook_size)``.  In particular, ``unsqueeze(-1)``
+        # would produce ``(..., codebook_size, 1)`` for the usual
+        # ``dim=-1`` case and silently mix up candidates and classes.
+        dim = dim % logits.ndim
+        π1 = π1.movedim(dim, -1).unsqueeze(dim)
+
     one_hot = one_hot + π1 - π1.detach()
 
     return ind, one_hot
@@ -654,12 +666,16 @@ class Codebook(Module):
 
         if needs_codebook_dim:
             x = rearrange(x, '... -> 1 ...')
+            embed_ind = rearrange(embed_ind, '... -> 1 ...')
 
         dtype = x.dtype
         flatten, unpack_one = pack_one(x, 'h * d')
 
         if exists(mask):
-            mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
+            if mask.shape == x.shape[:-1]:
+                mask = rearrange(mask, 'h ... -> h (...)')
+            else:
+                mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
 
         embed_ind, _ = pack([embed_ind], 'h *')
         embed_ind = embed_ind.masked_fill(embed_ind == -1, 0)
@@ -698,7 +714,10 @@ class Codebook(Module):
         flatten, unpack_one = pack_one(x, 'h * d')
 
         if exists(mask):
-            mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
+            if mask.shape == x.shape[:-1]:
+                mask = rearrange(mask, 'h ... -> h (...)')
+            else:
+                mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
 
         self.init_embed_(flatten, mask = mask)
 
@@ -761,24 +780,38 @@ class Codebook(Module):
                 unpacked_onehot = unpack_one(embed_onehot, 'h * c')
 
             if exists(codebook_transform_fn):
-                quantize = einsum('h b n ... c, h b n c d -> h b n ... d', unpacked_onehot, transformed_embed)
+                if exists(topk):
+                    quantize = (
+                        unpacked_onehot.unsqueeze(-1) *
+                        transformed_embed.unsqueeze(-3)
+                    ).sum(dim = -2)
+                else:
+                    quantize = (
+                        unpacked_onehot.unsqueeze(-1) *
+                        transformed_embed
+                    ).sum(dim = -2)
             else:
                 quantize = einsum('h b n ... c, h c d -> h b n ... d', unpacked_onehot, embed)
 
+        elif exists(codebook_transform_fn):
+            gather_indices = embed_ind
+
+            if not exists(topk):
+                gather_indices = rearrange(gather_indices, '... -> ... 1')
+
+            gather_indices = repeat(
+                gather_indices,
+                '... k -> ... k d',
+                d = transformed_embed.shape[-1]
+            )
+
+            quantize = transformed_embed.gather(-2, gather_indices)
+
+            if not exists(topk):
+                quantize = rearrange(quantize, '... 1 d -> ... d')
+
         else:
-            if exists(codebook_transform_fn):
-                # quantize = einx.get_at('h b n [c] d, h b n -> h b n d', transformed_embed, embed_ind)
-
-                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n 1 d', d = transformed_embed.shape[-1])
-                quantize = transformed_embed.gather(-2, repeated_embed_ind)
-                quantize = rearrange(quantize, 'h b n 1 d -> h b n d')
-
-            else:
-                # quantize = einx.get_at('h [c] d, h b n -> h b n d', embed, embed_ind)
-
-                repeated_embed = repeat(embed, 'h c d -> h b c d', b = embed_ind.shape[1])
-                repeated_embed_ind = repeat(embed_ind, 'h b n -> h b n d', d = embed.shape[-1])
-                quantize = repeated_embed.gather(-2, repeated_embed_ind)
+            quantize = einx.get_at('h [c] d, h ... -> h ... d', embed, embed_ind)
 
         if self.training and update_usage and not freeze_codebook and not exists(topk):
             self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update, ema_update = ema_update)
@@ -996,12 +1029,26 @@ class VectorQuantize(Module):
         self._codebook.embed.copy_(codes)
 
     def get_codes_from_indices(self, indices):
-        codebook = self.codebook
-        is_multiheaded = codebook.ndim > 2
+        # ``self.codebook`` intentionally hides the singleton codebook axis
+        # for shared codebooks.  Use the configured head count instead of the
+        # resulting tensor rank, otherwise a shared multi-head quantizer is
+        # decoded as a single head and ``project_out`` receives the wrong
+        # feature width (especially when ``codebook_dim != dim``).
+        is_multiheaded = self.heads > 1
 
         if not is_multiheaded:
+            # A singleton ``separate_codebook_per_head`` configuration still
+            # stores an explicit head axis internally.  Public indices do not
+            # carry that redundant axis, so remove it before gathering.
+            codebook = self._codebook.embed
+            if codebook.shape[0] == 1:
+                codebook = codebook[0]
             codes = codebook[indices]
         else:
+            codebook = self._codebook.embed
+            if not self.separate_codebook_per_head:
+                codebook = codebook.expand(self.heads, -1, -1)
+
             indices, unpack_one = pack_one(indices, 'b * h')
             indices = rearrange(indices, 'b n h -> b h n')
 
@@ -1019,7 +1066,23 @@ class VectorQuantize(Module):
 
     def get_output_from_indices(self, indices):
         codes = self.get_codes_from_indices(indices)
-        return self.project_out(codes)
+
+        # ``get_codes_from_indices`` follows the requested public layout
+        # (for example ``b d n`` for channel-first inputs).  Linear
+        # projections, however, operate on the feature dimension in the
+        # last position.  Move that dimension back temporarily so decoding
+        # also works when ``codebook_dim != dim``.
+        needs_layout_restore = not self.channel_last or self.accept_image_fmap or self.accept_3d_fmap
+
+        if needs_layout_restore and codes.ndim > 2:
+            codes = rearrange(codes, 'b d ... -> b ... d')
+
+        codes = self.project_out(codes)
+
+        if needs_layout_restore and codes.ndim > 2:
+            codes = rearrange(codes, 'b ... d -> b d ...')
+
+        return codes
 
     def update_in_place_optimizer(self):
         if not exists(self.in_place_codebook_optimizer):
@@ -1048,22 +1111,67 @@ class VectorQuantize(Module):
         ein_rhs_eq = 'h b n d' if self.separate_codebook_per_head else '1 (b h) n d'
         return rearrange(x, f'b n (h d) -> {ein_rhs_eq}', h = self.heads)
 
+    def prepare_codebook_input(self, x, mask = None):
+        if self.heads == 1:
+            codebook_input = rearrange(x, '... -> 1 ...')
+
+            if not exists(mask):
+                return codebook_input, None
+
+            num_extra_dims = x.ndim - 3
+            codebook_mask = mask.reshape(1, *mask.shape, *((1,) * num_extra_dims))
+            codebook_mask = codebook_mask.expand(codebook_input.shape[:-1])
+            return codebook_input, codebook_mask
+
+        if not exists(mask):
+            return x, None
+
+        if self.separate_codebook_per_head:
+            codebook_mask = repeat(mask, 'b n -> h b n', h = self.heads)
+        else:
+            codebook_mask = repeat(mask, 'b n -> 1 (b h) n', h = self.heads)
+
+        return x, codebook_mask
+
     def expire_codes_(self, x):
         x = self._codebook.transform_input(x)
         x = self.maybe_split_heads_from_input(x)
+        x, _ = self.prepare_codebook_input(x)
         self._codebook.expire_codes_(x)
 
     def update_indices(self, x, indices, mask = None):
+        # Accept both the public single-head shape ``(b, n)`` and the
+        # legacy Codebook-shaped ``(1, b, n)`` indices.  Normalize the
+        # latter before applying layout transforms so that the codebook axis
+        # is not accidentally added twice.
+        explicit_codebook_axis = (
+            self.heads == 1 and
+            indices.ndim == x.ndim and
+            indices.shape[0] == 1
+        )
+
+        if explicit_codebook_axis:
+            indices = indices.squeeze(0)
+
+        only_one = x.ndim == 2
+
+        if only_one:
+            assert not exists(mask)
+            x = rearrange(x, 'b d -> b 1 d')
+            indices = rearrange(indices, 'b ... -> b 1 ...')
+
         if self.accept_image_fmap:
             assert not exists(mask)
             height, width = x.shape[-2:]
             x = rearrange(x, 'b c h w -> b (h w) c')
+            indices = rearrange(indices, 'b h w ... -> b (h w) ...')
 
         if self.accept_3d_fmap:
             assert not exists(mask)
             x = rearrange(x, 'b c d h w -> b (d h w) c')
+            indices = rearrange(indices, 'b d h w ... -> b (d h w) ...')
 
-        if not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap:
+        if not only_one and not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap:
             x = rearrange(x, 'b d n -> b n d')
 
         x = self.project_in(x)
@@ -1076,16 +1184,12 @@ class VectorQuantize(Module):
             else:
                 indices = rearrange(indices, 'b n h -> 1 (b h) n')
 
-        if self.accept_image_fmap:
-             indices = rearrange(indices, 'b h w ... -> b (h w) ...')
+        x, codebook_mask = self.prepare_codebook_input(x, mask)
 
-        if self.accept_3d_fmap:
-             indices = rearrange(indices, 'b d h w ... -> b (d h w) ...')
+        if self.heads == 1:
+            indices = rearrange(indices, '... -> 1 ...')
 
-        if x.ndim == 2: # only one token
-             indices = rearrange(indices, 'b ... -> b 1 ...')
-
-        self._codebook.update_indices(x, indices, mask = mask)
+        self._codebook.update_indices(x, indices, mask = codebook_mask)
 
     # for backwards compatibility
     update_ema_indices = update_indices
@@ -1097,6 +1201,7 @@ class VectorQuantize(Module):
         mask = None,
         lens = None,
         topk = None,
+        return_topk_scores = False,
         sample_codebook_temp = None,
         freeze_codebook = None,
         return_loss_breakdown = False,
@@ -1106,6 +1211,12 @@ class VectorQuantize(Module):
         ema_update = None
     ):
         orig_input, input_requires_grad = x, x.requires_grad
+
+        assert not return_topk_scores or exists(topk)
+        assert not (exists(indices) and exists(topk)), 'topk cannot be combined with explicit indices'
+
+        if exists(topk):
+            assert 0 < topk <= self.codebook_size
 
         # freezing codebook
 
@@ -1128,7 +1239,7 @@ class VectorQuantize(Module):
 
         shape, dtype, device, heads, is_multiheaded, codebook_size, return_loss = x.shape, x.dtype, x.device, self.heads, self.heads > 1, self.codebook_size, exists(indices)
 
-        need_transpose = not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap
+        need_transpose = not only_one and not self.channel_last and not self.accept_image_fmap and not self.accept_3d_fmap
         should_inplace_optimize = exists(self.in_place_codebook_optimizer)
 
         # rearrange inputs
@@ -1158,11 +1269,13 @@ class VectorQuantize(Module):
 
         x = self._codebook.transform_input(x)
 
+        codebook_input, codebook_mask = self.prepare_codebook_input(x, mask)
+
         # codebook forward kwargs
 
         codebook_forward_kwargs = dict(
             sample_codebook_temp = sample_codebook_temp,
-            mask = mask,
+            mask = codebook_mask,
             freeze_codebook = freeze_codebook,
             codebook_transform_fn = codebook_transform_fn,
             ema_update_weight = ema_update_weight,
@@ -1173,7 +1286,10 @@ class VectorQuantize(Module):
 
         # quantize
 
-        quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
+        quantize, embed_ind, distances = self._codebook(codebook_input, **codebook_forward_kwargs)
+
+        if not is_multiheaded:
+            quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
 
         quantize = quantize.type(dtype)
 
@@ -1185,17 +1301,35 @@ class VectorQuantize(Module):
 
         if should_inplace_optimize and self.training and not freeze_codebook:
 
+            inplace_target = x.detach()
+
+            if exists(topk):
+                inplace_target = repeat(inplace_target, '... d -> ... k d', k = topk)
+
+            # Reduce the feature dimension first, then apply the public
+            # ``(batch, sequence)`` mask.  Boolean indexing the unreduced
+            # tensor fails as soon as top-k adds a candidate axis (and also
+            # made the multi-head path depend on an accidental axis order).
+            inplace_loss = (
+                quantize.float() - inplace_target.float()
+            ).square().mean(dim = -1)
+
+            if is_multiheaded:
+                if self.separate_codebook_per_head:
+                    inplace_loss = reduce(inplace_loss, 'h b ... -> b ...', 'mean')
+                else:
+                    inplace_loss = reduce(inplace_loss, '1 (b h) ... -> b ...', 'mean', b = shape[0], h = heads)
+
             if exists(mask):
-                loss = F.mse_loss(quantize, x.detach(), reduction = 'none')
+                valid = mask
+                while valid.ndim < inplace_loss.ndim:
+                    valid = valid.unsqueeze(-1)
 
-                loss_mask = mask
-                if is_multiheaded:
-                    loss_mask = repeat(mask, 'b n -> c (b h) n', c = loss.shape[0], h = loss.shape[1] // mask.shape[0])
-
-                loss = loss[loss_mask].mean()
-
+                valid = valid.expand_as(inplace_loss)
+                inplace_loss = inplace_loss.masked_fill(~valid, 0.)
+                loss = inplace_loss.sum() / valid.sum().clamp_min(1).to(inplace_loss)
             else:
-                loss = F.mse_loss(quantize, x.detach())
+                loss = inplace_loss.mean()
 
             loss.backward()
 
@@ -1207,7 +1341,68 @@ class VectorQuantize(Module):
             # quantize again
 
             codebook_forward_kwargs.update(update_usage = False)
-            quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
+            quantize, embed_ind, distances = self._codebook(codebook_input, **codebook_forward_kwargs)
+
+            if not is_multiheaded:
+                quantize, embed_ind = map(lambda t: rearrange(t, '1 ... -> ...'), (quantize, embed_ind))
+
+            quantize = quantize.type(dtype)
+
+        topk_scores = topk_ce_loss = topk_candidate_loss = None
+
+        if exists(topk):
+            codebook_embed_ind = embed_ind
+
+            if not is_multiheaded:
+                codebook_embed_ind = rearrange(codebook_embed_ind, '... -> 1 ...')
+
+            selected_ce = -distances.log_softmax(dim = -1).gather(-1, codebook_embed_ind)
+
+            if not is_multiheaded:
+                topk_ce_loss = rearrange(selected_ce, '1 ... -> ...')
+            elif self.separate_codebook_per_head:
+                topk_ce_loss = reduce(selected_ce, 'h b ... -> b ...', 'mean')
+            else:
+                topk_ce_loss = reduce(selected_ce, '1 (b h) ... -> b ...', 'mean', b = shape[0], h = heads)
+
+            # Beam search needs a score even in evaluation mode, where the
+            # ordinary VQ loss is intentionally a scalar zero.  Use the
+            # same per-candidate reconstruction/commitment metric as the
+            # training path (or its per-candidate cross-entropy variant)
+            # and negate it because beam search keeps the largest score.
+            # Distances are not used directly here: cosine similarity and
+            # Euclidean distance have different scales, while the residual
+            # VQ objective is defined in terms of the commitment error.
+            if self.commitment_use_cross_entropy_loss:
+                topk_candidate_loss = topk_ce_loss
+            else:
+                candidate_quantize = quantize
+                candidate_input = x
+
+                if not is_multiheaded:
+                    candidate_quantize = rearrange(candidate_quantize, '... -> 1 ...')
+                    candidate_input = rearrange(candidate_input, '... -> 1 ...')
+
+                candidate_error = (
+                    candidate_quantize.float() - candidate_input.unsqueeze(-2).float()
+                ).square()
+                candidate_error = candidate_error.mean(dim = -1)
+
+                if not is_multiheaded:
+                    topk_candidate_loss = rearrange(candidate_error, '1 ... -> ...')
+                elif self.separate_codebook_per_head:
+                    topk_candidate_loss = reduce(candidate_error, 'h b ... -> b ...', 'mean')
+                else:
+                    topk_candidate_loss = reduce(candidate_error, '1 (b h) ... -> b ...', 'mean', b = shape[0], h = heads)
+
+            # Keep the score aligned with the weighted commitment term when
+            # one is enabled.  With commitment disabled (for example DiVeQ),
+            # the raw candidate error remains a useful deterministic metric.
+            beam_candidate_loss = topk_candidate_loss
+            if self.has_commitment_loss:
+                beam_candidate_loss = beam_candidate_loss * self.commitment_weight
+
+            topk_scores = -beam_candidate_loss
 
         if self.training:
             # determine code to use for commitment loss
@@ -1264,18 +1459,35 @@ class VectorQuantize(Module):
 
         if is_multiheaded:
             if self.separate_codebook_per_head:
-                embed_ind = rearrange(embed_ind, 'h b n -> b n h', h = heads)
+                embed_ind = rearrange(
+                    embed_ind,
+                    'h b n ... -> b n ... h',
+                    h = heads
+                )
             else:
-                embed_ind = rearrange(embed_ind, '1 (b h) n -> b n h', h = heads)
+                embed_ind = rearrange(
+                    embed_ind,
+                    '1 (b h) n ... -> b n ... h',
+                    h = heads
+                )
 
         if self.accept_image_fmap:
             embed_ind = rearrange(embed_ind, 'b (h w) ... -> b h w ...', h = height, w = width)
 
+            if exists(topk_scores):
+                topk_scores = rearrange(topk_scores, 'b (h w) ... -> b h w ...', h = height, w = width)
+
         if self.accept_3d_fmap:
             embed_ind = rearrange(embed_ind, 'b (d h w) ... -> b d h w ...', d = depth, h = height, w = width)
 
+            if exists(topk_scores):
+                topk_scores = rearrange(topk_scores, 'b (d h w) ... -> b d h w ...', d = depth, h = height, w = width)
+
         if only_one:
             embed_ind = rearrange(embed_ind, 'b 1 ... -> b ...')
+
+            if exists(topk_scores):
+                topk_scores = rearrange(topk_scores, 'b 1 ... -> b ...')
 
         # aggregate loss
 
@@ -1295,24 +1507,28 @@ class VectorQuantize(Module):
 
             if self.has_commitment_loss:
                 if self.commitment_use_cross_entropy_loss:
-                    if exists(mask):
-                        ce_loss_mask = mask
-                        if is_multiheaded:
-                            ce_loss_mask = repeat(ce_loss_mask, 'b n -> b n h', h = heads)
+                    if exists(topk):
+                        commit_loss = topk_candidate_loss
 
-                        embed_ind.masked_fill_(~ce_loss_mask, -1)
+                        if exists(mask):
+                            commit_loss = einx.where('b n, b n ... k, -> b n ... k', mask, commit_loss, 0.)
+                    else:
+                        if exists(mask):
+                            ce_loss_mask = mask
+                            if is_multiheaded:
+                                ce_loss_mask = repeat(ce_loss_mask, 'b n -> b n h', h = heads)
 
-                    commit_loss = calculate_ce_loss(embed_ind)
+                            embed_ind.masked_fill_(~ce_loss_mask, -1)
+
+                        commit_loss = calculate_ce_loss(embed_ind)
                 else:
                     if exists(topk):
                         # handle special case when returning topk
 
-                        repeated_input = repeat(orig_input, '... d -> ... k d', k = topk)
-                        commit_loss = F.mse_loss(commit_quantize, repeated_input, reduction = 'none')
-                        commit_loss = reduce(commit_loss, '... k d -> ... k', 'mean')
+                        commit_loss = topk_candidate_loss
 
                         if exists(mask):
-                            commit_loss = einx.where('..., ... k, -> ... k', mask, commit_loss, 0.)
+                            commit_loss = einx.where('b n, b n ... k, -> b n ... k', mask, commit_loss, 0.)
 
                     elif exists(mask):
                         # with variable lengthed sequences
@@ -1351,27 +1567,21 @@ class VectorQuantize(Module):
 
         if is_multiheaded:
             if self.separate_codebook_per_head:
-                quantize = rearrange(quantize, 'h b n d -> b n (h d)', h = heads)
+                quantize = rearrange(
+                    quantize,
+                    'h b n ... d -> b n ... (h d)',
+                    h = heads
+                )
             else:
-                quantize = rearrange(quantize, '1 (b h) n d -> b n (h d)', h = heads)
+                quantize = rearrange(
+                    quantize,
+                    '1 (b h) n ... d -> b n ... (h d)',
+                    h = heads
+                )
 
         # project out
 
         quantize = self.project_out(quantize)
-
-        # rearrange quantized embeddings
-
-        if need_transpose:
-            quantize = rearrange(quantize, 'b n d -> b d n')
-
-        if self.accept_image_fmap:
-            quantize = rearrange(quantize, 'b (h w) c -> b c h w', h = height, w = width)
-
-        if self.accept_3d_fmap:
-            quantize = rearrange(quantize, "b (d h w) c -> b c d h w", d=depth, h=height, w=width)
-
-        if only_one:
-            quantize = rearrange(quantize, 'b 1 d -> b d')
 
         # if masking, only return quantized for where mask has True
 
@@ -1381,8 +1591,14 @@ class VectorQuantize(Module):
             if self.return_zeros_for_masked_padding:
                 masked_out_value = torch.zeros_like(orig_input)
 
+            if need_transpose:
+                masked_out_value = rearrange(masked_out_value, 'b d n -> b n d')
+
+            if exists(topk):
+                masked_out_value = repeat(masked_out_value, '... d -> ... k d', k = topk)
+
             quantize = einx.where(
-                'b n, b n ... d, b n d -> b n ... d',
+                'b n, b n ... d, b n ... d -> b n ... d',
                 mask,
                 quantize,
                 masked_out_value
@@ -1395,9 +1611,48 @@ class VectorQuantize(Module):
                 -1
             )
 
+            if exists(topk_scores):
+                topk_scores = einx.where(
+                    'b n, b n ..., -> b n ...',
+                    mask,
+                    topk_scores,
+                    0.
+                )
+
+        # rearrange quantized embeddings
+
+        if need_transpose:
+            quantize = rearrange(quantize, 'b n ... d -> b d n ...')
+
+        if self.accept_image_fmap:
+            quantize = rearrange(
+                quantize,
+                'b (h w) ... c -> b c h w ...',
+                h = height,
+                w = width
+            )
+
+        if self.accept_3d_fmap:
+            quantize = rearrange(
+                quantize,
+                'b (d h w) ... c -> b c d h w ...',
+                d = depth,
+                h = height,
+                w = width
+            )
+
+        if only_one:
+            quantize = rearrange(quantize, 'b 1 ... d -> b ... d')
+
         if not return_loss_breakdown:
+            if return_topk_scores:
+                return quantize, embed_ind, loss, topk_scores
+
             return quantize, embed_ind, loss
 
         loss_breakdown = LossBreakdown(commit_loss, codebook_diversity_loss, orthogonal_reg_loss, inplace_optimize_loss)
+
+        if return_topk_scores:
+            return quantize, embed_ind, loss, loss_breakdown, topk_scores
 
         return quantize, embed_ind, loss, loss_breakdown

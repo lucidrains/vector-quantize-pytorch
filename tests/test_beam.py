@@ -46,6 +46,142 @@ def test_topk_and_manual_ema_update():
     assert torch.allclose(vq1._codebook.embed_avg, vq2._codebook.embed_avg)
     assert torch.allclose(vq1.codebook, vq2.codebook)
 
+@param('training', (False, True))
+@param('topk', (1, 2))
+@param('transform_codebook', (False, True))
+@param(
+    'heads,separate_codebook_per_head',
+    (
+        (1, False),
+        (1, True),
+        (2, False),
+        (2, True)
+    )
+)
+def test_topk_quantization_in_train_and_eval(
+    training,
+    topk,
+    transform_codebook,
+    heads,
+    separate_codebook_per_head
+):
+    vq = VectorQuantize(
+        dim = 8,
+        codebook_dim = 3,
+        heads = heads,
+        separate_codebook_per_head = separate_codebook_per_head,
+        codebook_size = 8,
+    )
+
+    vq.train(training)
+
+    x = torch.randn(2, 3, 8, requires_grad = training)
+
+    codebook_transform_fn = None
+
+    if transform_codebook:
+        transform_batch = x.shape[0]
+
+        if heads > 1 and not separate_codebook_per_head:
+            transform_batch *= heads
+
+        def codebook_transform_fn(codebook):
+            return codebook[:, None, None].expand(
+                -1, transform_batch, x.shape[1], -1, -1
+            )
+
+    forward_kwargs = {
+        'freeze_codebook': True,
+        'ema_update': False,
+        'codebook_transform_fn': codebook_transform_fn
+    }
+
+    baseline_quantized, baseline_indices, _ = vq(x, **forward_kwargs)
+    quantized, indices, commit_loss = vq(x, topk = topk, **forward_kwargs)
+
+    expected_indices_shape = (2, 3, topk)
+    expected_baseline_indices_shape = (2, 3)
+    top_indices = indices[..., 0]
+
+    if heads > 1:
+        expected_indices_shape = (*expected_indices_shape, heads)
+        expected_baseline_indices_shape = (*expected_baseline_indices_shape, heads)
+        top_indices = indices[..., 0, :]
+
+    assert baseline_quantized.shape == (2, 3, 8)
+    assert baseline_indices.shape == expected_baseline_indices_shape
+    assert quantized.shape == (2, 3, topk, 8)
+    assert indices.shape == expected_indices_shape
+    assert quantized.dtype == x.dtype
+    assert indices.dtype == torch.long
+    assert quantized.device == x.device
+    assert indices.device == x.device
+    assert torch.allclose(quantized[..., 0, :], baseline_quantized)
+    assert torch.equal(top_indices, baseline_indices)
+
+    if training:
+        assert commit_loss.shape == (2, 3, topk)
+
+        (quantized.square().mean() + commit_loss.mean()).backward()
+
+        assert x.grad is not None
+        assert torch.isfinite(x.grad).all()
+        assert x.grad.abs().sum() > 0
+
+@param('layout', ('channel_first', 'image', 'video', 'single_token'))
+@param('separate_codebook_per_head', (False, True))
+def test_multiheaded_topk_output_layouts(layout, separate_codebook_per_head):
+    vq_kwargs = {
+        'dim': 8,
+        'codebook_dim': 3,
+        'codebook_size': 8,
+        'heads': 2,
+        'separate_codebook_per_head': separate_codebook_per_head
+    }
+
+    if layout == 'channel_first':
+        vq_kwargs.update(channel_last = False)
+        x = torch.randn(2, 8, 3)
+        expected_quantized_shape = (2, 8, 3, 2)
+        expected_indices_shape = (2, 3, 2, 2)
+    elif layout == 'image':
+        vq_kwargs.update(accept_image_fmap = True)
+        x = torch.randn(2, 8, 2, 3)
+        expected_quantized_shape = (2, 8, 2, 3, 2)
+        expected_indices_shape = (2, 2, 3, 2, 2)
+    elif layout == 'video':
+        vq_kwargs.update(accept_3d_fmap = True)
+        x = torch.randn(2, 8, 2, 2, 3)
+        expected_quantized_shape = (2, 8, 2, 2, 3, 2)
+        expected_indices_shape = (2, 2, 2, 3, 2, 2)
+    else:
+        x = torch.randn(2, 8)
+        expected_quantized_shape = (2, 2, 8)
+        expected_indices_shape = (2, 2, 2)
+
+    vq = VectorQuantize(**vq_kwargs).eval()
+
+    baseline_quantized, baseline_indices, _ = vq(x)
+    quantized, indices, _ = vq(x, topk = 2)
+
+    top_quantized = quantized[:, 0] if layout == 'single_token' else quantized[..., 0]
+    top_indices = indices.select(-2, 0)
+
+    assert baseline_quantized.shape == x.shape
+    assert baseline_indices.shape == expected_indices_shape[:-2] + (2,)
+    assert quantized.shape == expected_quantized_shape
+    assert indices.shape == expected_indices_shape
+    assert quantized.dtype == x.dtype
+    assert indices.dtype == torch.long
+    assert quantized.device == x.device
+    assert indices.device == x.device
+    assert torch.allclose(top_quantized, baseline_quantized)
+    assert torch.equal(top_indices, baseline_indices)
+
+    decoded = vq.get_output_from_indices(baseline_indices)
+    assert decoded.shape == baseline_quantized.shape
+    assert torch.allclose(decoded, baseline_quantized)
+
 @param('codebook_dim', (256, 128))
 def test_beam_search(
     codebook_dim

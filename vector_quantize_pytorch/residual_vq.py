@@ -399,7 +399,7 @@ class ResidualVQ(Module):
 
         beam_size = default(beam_size, self.beam_size if self.training else self.eval_beam_size)
 
-        is_beam_search = exists(beam_size) and beam_size > 1
+        is_beam_search = exists(beam_size) and beam_size > 1 and not return_loss
 
         # projecting in
 
@@ -490,15 +490,21 @@ class ResidualVQ(Module):
 
             # vector quantize forward
 
-            quantized, embed_indices, loss = vq(
+            vq_output = vq(
                 residual,
                 mask = mask,
                 indices = layer_indices,
                 sample_codebook_temp = sample_codebook_temp,
                 freeze_codebook = freeze_codebook,
                 codebook_transform_fn = maybe_mlp,
-                topk = beam_size if is_beam_search else None
+                topk = beam_size if is_beam_search else None,
+                return_topk_scores = is_beam_search
             )
+
+            if is_beam_search:
+                quantized, embed_indices, loss, candidate_scores = vq_output
+            else:
+                quantized, embed_indices, loss = vq_output
 
             # cross entropy loss for some old paper
 
@@ -512,7 +518,16 @@ class ResidualVQ(Module):
             if is_beam_search:
 
                 score_weight = self.beam_score_weights[quantizer_index]
-                search_scores = einx.add('... j, ... j k -> ... (j k)', search_scores, -loss * score_weight)
+                search_scores = einx.add(
+                    '... j, ... j k -> ... (j k)',
+                    search_scores,
+                    candidate_scores.detach() * score_weight
+                )
+
+                if not self.training:
+                    loss = -candidate_scores
+                elif loss.ndim == 0:
+                    loss = loss.expand_as(candidate_scores)
 
                 residual = rearrange(residual, '... j d -> ... j 1 d')
                 quantized_out = rearrange(quantized_out, '... j d -> ... j 1 d')
@@ -577,7 +592,7 @@ class ResidualVQ(Module):
 
             if exists(mask):
                 all_losses = einx.where('..., ... l,', mask, all_losses, 0.)
-                all_losses = reduce(all_losses, '... l -> l', 'sum') / mask.sum(dim = -1).clamp_min(1e-4)
+                all_losses = reduce(all_losses, '... l -> l', 'sum') / mask.sum().clamp_min(1e-4)
             else:
                 all_losses = reduce(all_losses, '... l -> l', 'mean')
 
