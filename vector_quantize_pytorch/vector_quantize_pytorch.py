@@ -4,7 +4,6 @@ from typing import Callable
 from math import sqrt
 from functools import partial, cache
 from collections import namedtuple
-import warnings
 
 import torch
 from torch.nn import Module
@@ -16,6 +15,8 @@ from torch.amp import autocast
 
 import einx
 from einops import rearrange, repeat, reduce, pack, unpack
+
+from loguru import logger
 
 def exists(val):
     return val is not None
@@ -460,7 +461,7 @@ class Codebook(Module):
         num_samples = data.shape[-2]
 
         if num_samples < self.codebook_size:
-            warnings.warn(f'k-means init received {num_samples} vectors for a codebook of {self.codebook_size}; the shortfall is filled by sampling with replacement, so at least {self.codebook_size - num_samples} codes start as exact duplicates. Initialize from a batch with at least codebook_size vectors, or set threshold_ema_dead_code > 0 so they can be replaced.')
+            logger.warning(f'k-means init received {num_samples} vectors for a codebook of {self.codebook_size} - duplicates will be sampled')
 
         embed, cluster_size = kmeans(
             data,
@@ -552,23 +553,27 @@ class Codebook(Module):
             batch_samples = l2norm(batch_samples)
 
         for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
+            device = samples.device
+
             if exists(seq_mask):
                 samples = samples[seq_mask[ind]]
 
             if is_empty(samples):
                 continue
 
+            num_samples = samples.shape[0]
             num_dead = mask.sum().item()
 
-            # with fewer vectors than dead codes, sampling with replacement would write the same vector into several
-            # codes and they stay identical; replace as many codes as there are vectors now, the rest on later steps
+            # when there are more dead codes than samples, sampling with replacement would duplicate codes
+            # so only replace a random subset of the dead codes now, deferring the rest to later steps
 
-            if self.replace_sample_fn is batched_sample_vectors and num_dead > samples.shape[0]:
+            if self.replace_sample_fn is batched_sample_vectors and num_dead > num_samples:
                 dead_indices = mask.nonzero(as_tuple = True)[0]
-                dead_indices = dead_indices[torch.randperm(num_dead, device = dead_indices.device)[:samples.shape[0]]]
+                dead_indices = dead_indices[torch.randperm(num_dead, device = device)[:num_samples]]
+
                 mask = torch.zeros_like(mask)
                 mask[dead_indices] = True
-                num_dead = samples.shape[0]
+                num_dead = num_samples
 
             sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), num_dead)
             sampled = rearrange(sampled, '1 ... -> ...')

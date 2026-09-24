@@ -593,15 +593,3 @@ def test_expire_codes_no_duplicates_when_batch_smaller_than_codebook():
 
     codebook = vq._codebook.embed.flatten(0, -2)
     assert codebook.unique(dim = 0).shape[0] == codebook.shape[0]
-
-def test_kmeans_init_warns_when_batch_smaller_than_codebook():
-    from vector_quantize_pytorch import VectorQuantize
-
-    vq = VectorQuantize(
-        dim = 32,
-        codebook_size = 1024,
-        kmeans_init = True
-    )
-
-    with pytest.warns(UserWarning):
-        vq(torch.randn(1, 800, 32))
