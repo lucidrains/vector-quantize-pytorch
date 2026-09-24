@@ -578,3 +578,30 @@ def test_diveq():
     residual_vq.eval()
     quantized_eval, indices_eval, commit_loss_eval = residual_vq(x)
     assert quantized_eval.shape == x.shape
+
+def test_expire_codes_no_duplicates_when_batch_smaller_than_codebook():
+    from vector_quantize_pytorch import VectorQuantize
+
+    vq = VectorQuantize(
+        dim = 32,
+        codebook_size = 1024,
+        threshold_ema_dead_code = 2
+    )
+
+    for _ in range(20):
+        vq(torch.randn(1, 800, 32))   # 800 vectors per step for 1024 codes
+
+    codebook = vq._codebook.embed.flatten(0, -2)
+    assert codebook.unique(dim = 0).shape[0] == codebook.shape[0]
+
+def test_kmeans_init_warns_when_batch_smaller_than_codebook():
+    from vector_quantize_pytorch import VectorQuantize
+
+    vq = VectorQuantize(
+        dim = 32,
+        codebook_size = 1024,
+        kmeans_init = True
+    )
+
+    with pytest.warns(UserWarning):
+        vq(torch.randn(1, 800, 32))
