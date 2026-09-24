@@ -4,6 +4,7 @@ from typing import Callable
 from math import sqrt
 from functools import partial, cache
 from collections import namedtuple
+import warnings
 
 import torch
 from torch.nn import Module
@@ -456,6 +457,11 @@ class Codebook(Module):
             c = data.shape[0]
             data = rearrange(data[mask], '(c n) d -> c n d', c = c)
 
+        num_samples = data.shape[-2]
+
+        if num_samples < self.codebook_size:
+            warnings.warn(f'k-means init received {num_samples} vectors for a codebook of {self.codebook_size}; the shortfall is filled by sampling with replacement, so at least {self.codebook_size - num_samples} codes start as exact duplicates. Initialize from a batch with at least codebook_size vectors, or set threshold_ema_dead_code > 0 so they can be replaced.')
+
         embed, cluster_size = kmeans(
             data,
             self.codebook_size,
@@ -552,7 +558,19 @@ class Codebook(Module):
             if is_empty(samples):
                 continue
 
-            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
+            num_dead = mask.sum().item()
+
+            # with fewer vectors than dead codes, sampling with replacement would write the same vector into several
+            # codes and they stay identical; replace as many codes as there are vectors now, the rest on later steps
+
+            if self.replace_sample_fn is batched_sample_vectors and num_dead > samples.shape[0]:
+                dead_indices = mask.nonzero(as_tuple = True)[0]
+                dead_indices = dead_indices[torch.randperm(num_dead, device = dead_indices.device)[:samples.shape[0]]]
+                mask = torch.zeros_like(mask)
+                mask[dead_indices] = True
+                num_dead = samples.shape[0]
+
+            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), num_dead)
             sampled = rearrange(sampled, '1 ... -> ...')
 
             sampled = sampled.to(self.embed.data)
