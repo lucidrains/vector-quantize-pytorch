@@ -26,6 +26,8 @@ def unpack_one(t, ps, pattern):
 
 
 class LatentQuantize(Module):
+    _version = 2
+
     def __init__(
         self,
         levels: List[int] | int,
@@ -59,6 +61,7 @@ class LatentQuantize(Module):
         super().__init__()
 
         self.dim = dim
+        self._frozen_values = not bool(optimize_values)
         self.in_place_codebook_optimizer = in_place_codebook_optimizer
         _levels = torch.tensor(levels, dtype=int32)
 
@@ -135,7 +138,23 @@ class LatentQuantize(Module):
                     self.values_per_latent
                 )
         else:
-            self.values_per_latent = values_per_latent  # are there any scenarios where this would have its gradients updated?
+            self.values_per_latent = nn.ParameterList(
+                [nn.Parameter(values, requires_grad=False) for values in values_per_latent]
+            )
+
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict,
+        missing_keys, unexpected_keys, error_msgs,
+    ):
+        # Legacy frozen quantizers did not serialize their scalar tables.
+        # Restore the initialized tables only for that historical schema.
+        if local_metadata.get("version", 1) < 2 and self._frozen_values:
+            for index, value in enumerate(self.values_per_latent):
+                state_dict.setdefault(f"{prefix}values_per_latent.{index}", value.detach())
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        )
 
     def quantization_loss(self, z: Tensor, zhat: Tensor, reduce="mean") -> Tensor:
         """Computes the quantization loss."""
