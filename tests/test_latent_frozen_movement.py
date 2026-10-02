@@ -47,6 +47,15 @@ class TestLatentFrozenMovement(unittest.TestCase):
         del state["values_per_latent.0"]
         with self.assertRaisesRegex(RuntimeError, "values_per_latent.0"):
             model.load_state_dict(state, strict=True)
+    def test_runtime_freezing_does_not_change_legacy_learned_schema(self):
+        model = LatentQuantize(levels=[3, 4], dim=2, optimize_values=True)
+        model.requires_grad_(False)
+        state = model.state_dict()
+        state._metadata[""]["version"] = 1
+        del state["values_per_latent.0"]
+        with self.assertRaisesRegex(RuntimeError, "values_per_latent.0"):
+            model.load_state_dict(state, strict=True)
+
 
 if __name__ == "__main__":
     unittest.main()

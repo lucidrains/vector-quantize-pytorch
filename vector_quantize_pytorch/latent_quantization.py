@@ -61,6 +61,7 @@ class LatentQuantize(Module):
         super().__init__()
 
         self.dim = dim
+        self._frozen_values = not bool(optimize_values)
         self.in_place_codebook_optimizer = in_place_codebook_optimizer
         _levels = torch.tensor(levels, dtype=int32)
 
@@ -147,9 +148,7 @@ class LatentQuantize(Module):
     ):
         # Legacy frozen quantizers did not serialize their scalar tables.
         # Restore the initialized tables only for that historical schema.
-        if local_metadata.get("version", 1) < 2 and all(
-            not value.requires_grad for value in self.values_per_latent
-        ):
+        if local_metadata.get("version", 1) < 2 and self._frozen_values:
             for index, value in enumerate(self.values_per_latent):
                 state_dict.setdefault(f"{prefix}values_per_latent.{index}", value.detach())
         super()._load_from_state_dict(
