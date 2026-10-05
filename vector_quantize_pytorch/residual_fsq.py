@@ -130,6 +130,9 @@ class ResidualFSQ(Module):
 
     def get_codes_from_indices(self, indices):
 
+        if self.is_channel_first:
+            indices = rearrange(indices, 'b q ... -> b ... q')
+
         batch, quantize_dim = indices.shape[0], indices.shape[-1]
 
         # may also receive indices in the shape of 'b h w q' (accept_image_fmap)
@@ -168,7 +171,12 @@ class ResidualFSQ(Module):
     def get_output_from_indices(self, indices):
         codes = self.get_codes_from_indices(indices)
         codes_summed = reduce(codes, 'q ... -> ...', 'sum')
-        return self.project_out(codes_summed)
+        out = self.project_out(codes_summed)
+
+        if self.is_channel_first:
+            out = rearrange(out, 'b ... d -> b d ...')
+
+        return out
 
     def forward(
         self,
