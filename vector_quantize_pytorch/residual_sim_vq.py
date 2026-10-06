@@ -169,7 +169,7 @@ class ResidualSimVQ(Module):
             if quant_dropout_multiple_of != 1:
                 rand_quantize_dropout_index = round_up_multiple(rand_quantize_dropout_index + 1, quant_dropout_multiple_of) - 1
 
-            null_indices_shape = (x.shape[0], *x.shape[2:]) if self.channel_first else tuple(x.shape[:2])
+            null_indices_shape = (x.shape[0], *x.shape[2:]) if self.channel_first else tuple(x.shape[:-1])
             null_indices = torch.full(null_indices_shape, -1., device = device, dtype = torch.long)
             null_loss = torch.full((), 0., device = device, dtype = x.dtype)
 
