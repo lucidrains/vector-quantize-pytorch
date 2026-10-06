@@ -94,7 +94,16 @@ class ResidualLFQ(Module):
 
     @property
     def codebooks(self):
-        codebooks = [layer.codebook for layer in self.layers]
+        codebooks = []
+
+        for layer in self.layers:
+            codebook = layer.maybe_l2norm(layer.codebook)
+
+            if layer.orthogonal_rotation:
+                codebook = codebook @ layer.orthogonal_rot.t()
+
+            codebooks.append(codebook)
+
         codebooks = torch.stack(codebooks, dim = 0)
         return codebooks
 
