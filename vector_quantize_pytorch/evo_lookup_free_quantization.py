@@ -96,15 +96,21 @@ class EvoLFQ(Module):
             if is_2d:
                 latents = rearrange(latents, 'b d -> b 1 d')
 
-            quantized, indices, _ = self.lfq(latents)
+            _, indices, _ = self.lfq(latents)
 
             if is_2d:
-                quantized = rearrange(quantized, 'b 1 d -> b d')
+                indices = rearrange(indices, 'b 1 ... -> b ...')
+
+            if not self.lfq.keep_num_codebooks_dim:
+                indices = rearrange(indices, '... -> ... 1')
+
+            bits = ((indices[..., None].long() & self.lfq.mask) != 0).float()
+            bits = rearrange(bits, '... c d -> ... (c d)')
 
             if return_signs:
-                return torch.where(quantized > 0, 1.0, -1.0)
+                return bits * 2 - 1
 
-            return (quantized > 0).float()
+            return bits
 
     @torch.no_grad()
     def decode_bits(self, bits):
