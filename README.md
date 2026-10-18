@@ -571,7 +571,7 @@ assert image_feats.shape == quantized.shape
 assert (quantized == quantizer.indices_to_codes(indices)).all()
 ```
 
-You can also pass in video features as `(batch, feat, time, height, width)` or sequences as `(batch, seq, feat)`
+You can also pass in video features as `(batch, feat, time, height, width)` or sequences as `(batch, feat, seq)`
 
 ```python
 
@@ -585,10 +585,10 @@ quantizer = LatentQuantize(
     quantization_loss_weight=0.1,
 )
 
-seq = torch.randn(1, 32, 16)
+seq = torch.randn(1, 16, 32)
 quantized, *_ = quantizer(seq)
 
-# (1, 32, 16)
+# (1, 16, 32)
 
 video_feats = torch.randn(1, 16, 10, 32, 32)
 quantized, *_ = quantizer(video_feats)
@@ -609,13 +609,13 @@ model = LatentQuantize(
     num_codebooks = 3
 )
 
-input_tensor = torch.randn(2, 3, dim)
+input_tensor = torch.randn(2, 9, 3)
 output_tensor, indices, loss = model(input_tensor)
 
-# (2, 3, 9), (2, 3, 3), ()
+# (2, 9, 3), (2, 3, 3), ()
 
 assert output_tensor.shape == input_tensor.shape
-assert indices.shape == (2, 3, num_codebooks)
+assert indices.shape == (2, 3, 3)
 assert loss.item() >= 0
 ```
 
