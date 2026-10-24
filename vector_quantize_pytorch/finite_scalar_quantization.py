@@ -220,6 +220,11 @@ class FSQ(Module):
     def codes_to_indices(self, zhat):
         """ Converts a `code` to an index in the codebook. """
         assert zhat.shape[-1] == self.codebook_dim
+        if self.orthogonal_rotation:
+            zhat = zhat @ self.orthogonal_rot
+        return self._codes_to_indices(zhat)
+
+    def _codes_to_indices(self, zhat):
         zhat = self._scale_and_shift(zhat)
         return (zhat * self._basis).sum(dim = -1).round().to(int32)
 
@@ -289,7 +294,7 @@ class FSQ(Module):
             indices = None
 
             if self.return_indices:
-                indices = self.codes_to_indices(codes)
+                indices = self._codes_to_indices(codes)
 
             codes = self.maybe_apply_noise(codes)
 
