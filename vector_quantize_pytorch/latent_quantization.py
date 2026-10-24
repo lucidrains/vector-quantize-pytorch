@@ -59,7 +59,7 @@ class LatentQuantize(Module):
         super().__init__()
 
         self.dim = dim
-        self.in_place_codebook_optimizer = in_place_codebook_optimizer
+        self.in_place_codebook_optimizer = None
         _levels = torch.tensor(levels, dtype=int32)
 
         # if levels is an int, use it for all codebooks
@@ -139,13 +139,13 @@ class LatentQuantize(Module):
 
     def quantization_loss(self, z: Tensor, zhat: Tensor, reduce="mean") -> Tensor:
         """Computes the quantization loss."""
-        return F.mse_loss(zhat.detach(), z, reduction=reduce)
+        return F.mse_loss(z.detach(), zhat, reduction=reduce)
 
     def commitment_loss(self, z: Tensor, zhat: Tensor, reduce="mean") -> Tensor:
         """Computes the commitment loss."""
-        return F.mse_loss(z.detach(), zhat, reduction=reduce)
+        return F.mse_loss(z, zhat.detach(), reduction=reduce)
 
-    def quantize(self, z: Tensor) -> Tensor:
+    def _quantize(self, z: Tensor) -> Tensor:
         """Quantizes z, returns quantized zhat, same shape as z.
         The quantization is done by measuring the distance between the input and the codebook values per latent dimension
         and returning the index of the closest codebook value.
@@ -171,9 +171,11 @@ class LatentQuantize(Module):
             dim=-1,
         )
 
-        quantize = z + (quantize - z).detach()
-        # half_width = self._levels // 2 / 2  # Renormalize to [-0.5, 0.5].
-        return quantize  # / half_width
+        return quantize
+
+    def quantize(self, z: Tensor) -> Tensor:
+        quantized = self._quantize(z)
+        return z + (quantized - z).detach()
 
     def _scale_and_shift(self, zhat_normalized: Tensor) -> Tensor:
         """scale and shift zhat from [-0.5, 0.5] to [0, level_per_dim]"""
@@ -225,31 +227,36 @@ class LatentQuantize(Module):
         return codes, out, indices
 
     def forward(self, z: Tensor) -> Tensor:
-        """
-        einstein notation
-        b - batch
-        n - sequence (or flattened spatial dimensions)
-        d - feature dimension
-        c - number of codebook dim
-        """
-
-        original_input = z
-        should_inplace_optimize = self.in_place_codebook_optimizer is not None
-
+        """Quantize channel-first input and return reconstruction, indices and loss."""
         z = rearrange(z, "b d ... -> b ... d")
         z, ps = pack_one(z, "b * d")
 
-        assert (
-            z.shape[-1] == self.dim
-        ), f"expected dimension of {self.dim} but found dimension of {z.shape[-1]}"
+        assert z.shape[-1] == self.dim, (
+            f"expected dimension of {self.dim} but found dimension of {z.shape[-1]}"
+        )
 
-        # project in
         z = self.project_in(z)
         z = rearrange(z, "b n (c d) -> b n c d", c=self.num_codebooks)
+        quantized = self._quantize(z)
 
-        codes = self.quantize(z)
-        indices = self.codes_to_indices(codes)
+        should_inplace_optimize = (
+            self.in_place_codebook_optimizer is not None
+            and self.training
+            and torch.is_grad_enabled()
+            and self.quantization_loss_weight != 0
+        )
 
+        if should_inplace_optimize:
+            # This objective updates only the raw codebook values. The input
+            # projection graph remains available to the caller's backward pass.
+            codebook_loss = self.quantization_loss(z, quantized)
+            (codebook_loss * self.quantization_loss_weight).backward()
+            self.in_place_codebook_optimizer.step()
+            self.in_place_codebook_optimizer.zero_grad()
+            quantized = self._quantize(z)
+
+        indices = self.codes_to_indices(quantized)
+        codes = z + (quantized - z).detach()
         codes = rearrange(codes, "b n c d -> b n (c d)")
 
         out = self.project_out(codes)
@@ -257,54 +264,21 @@ class LatentQuantize(Module):
         out = rearrange(out, "b ... d -> b d ...")
 
         indices = unpack_one(indices, ps, "b * c")
-
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, "... 1 -> ...")
 
-        if should_inplace_optimize and self.training and not self.optimize_values:
-            # update codebook
-            loss = (
-                self.commitment_loss(z, out)
-                if self.commitment_loss_weight != 0
-                else torch.tensor(0.0)
-            )
-            loss += (
-                self.quantization_loss(z, out)
-                if self.quantization_loss_weight != 0
-                else torch.tensor(0.0)
-            )
-            loss.backward()
-            self.in_place_codebook_optimizer.step()
-            self.in_place_codebook_optimizer.zero_grad()
-            # quantize again
-            codes = self.quantize(z)
-            indices = self.codes_to_indices(codes)
-            codes = rearrange(codes, "b n c d -> b n (c d)")
-            out = self.project_out(codes)
-
-            out = unpack_one(out, ps, "b * d")
-            out = rearrange(out, "b ... d -> b d ...")
-
-            indices = unpack_one(indices, ps, "b * c")
-
-            if not self.keep_num_codebooks_dim:
-                indices = rearrange(indices, "... 1 -> ...")
-
-        # calculate losses
         commitment_loss = (
-            self.commitment_loss(original_input, out)
+            self.commitment_loss(z, quantized)
             if self.training and self.commitment_loss_weight != 0
-            else torch.tensor(0.0)
+            else z.new_tensor(0.0)
         )
         quantization_loss = (
-            self.quantization_loss(original_input, out)
+            self.quantization_loss(z, quantized)
             if self.training and self.quantization_loss_weight != 0
-            else torch.tensor(0.0)
+            else z.new_tensor(0.0)
         )
-
         loss = (
             self.commitment_loss_weight * commitment_loss
             + self.quantization_loss_weight * quantization_loss
         )
-
         return out, indices, loss
