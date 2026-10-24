@@ -1021,6 +1021,8 @@ class VectorQuantize(Module):
 
         if not is_multiheaded:
             codes = codebook[indices]
+            if self.heads > 1:
+                codes = rearrange(codes, '... h d -> ... (h d)')
         else:
             indices, unpack_one = pack_one(indices, 'b * h')
             indices = rearrange(indices, 'b n h -> b h n')
