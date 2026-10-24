@@ -892,6 +892,18 @@ assert loss.item() >= 0
 ```
 
 ```bibtex
+@misc{kumbong2026nextconcept,
+    title   = {Next-Concept Modeling: Fast, Parallel Coarse-to-Fine Text Generation},
+    author  = {Hermann Kumbong and Ishan S. Khare and Iddah Mlauzi and Andrew Woen and Charles Ding and E. Kelly Buchanan and Simran Arora and Azalia Mirhoseini and Christopher Ré},
+    year    = {2026},
+    eprint  = {2610.14162},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CL},
+    url     = {https://arxiv.org/abs/2610.14162},
+}
+```
+
+```bibtex
 @misc{zhai2026vpvaerethinkingvectorquantization,
     title   = {VP-VAE: Rethinking Vector Quantization via Adaptive Vector Perturbation},
     author  = {Linwei Zhai and Han Ding and Mingzhi Lin and Cui Zhao and Fei Wang and Ge Wang and Wang Zhi and Wei Xi},
