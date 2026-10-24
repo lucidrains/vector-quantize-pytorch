@@ -344,7 +344,8 @@ def orthogonal_loss_fn(t):
     h, n = t.shape[:2]
     normed_codes = l2norm(t)
     cosine_sim = einsum('h i d, h j d -> h i j', normed_codes, normed_codes)
-    return (cosine_sim ** 2).sum() / (h * n ** 2) - (1 / n)
+    # Epsilon-normalized zero or tiny codes need not have unit diagonal entries.
+    return ((cosine_sim ** 2).sum() - 2 * (normed_codes ** 2).sum() + h * n) / (h * n ** 2)
 
 # distance types
 
