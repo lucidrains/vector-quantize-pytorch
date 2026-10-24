@@ -366,7 +366,7 @@ class LFQ(Module):
                     # account for mask
 
                     num_tokens = input_for_entropy.size(0)
-                    num_sampled_tokens = int(num_tokens * self.frac_per_sample_entropy)
+                    num_sampled_tokens = max(1, int(num_tokens * self.frac_per_sample_entropy))
                     rand_mask = torch.randn(num_tokens).argsort(dim = -1) < num_sampled_tokens
 
                     sampled_input = input_for_entropy[rand_mask]
