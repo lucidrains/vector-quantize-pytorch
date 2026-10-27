@@ -66,10 +66,15 @@ from vector_quantize_pytorch import ResidualVQ
 residual_vq = ResidualVQ(
     dim = 256,
     num_quantizers = 8,      # specify number of quantizers
-    codebook_size = 1024,    # codebook size
+    codebook_size = 512,    # codebook size
     diveq = True             # use DiVeQ technique to update the codebooks
 )
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, loss = residual_vq(x) # (1, 1024, 256), (1, 1024, 8), (8,)
 ```
+where *loss* equals `torch.zeros(8,)`, since DiVeQ does not need any auxiliary loss to update the codebooks.
+
 
 Furthermore, <a href="https://arxiv.org/abs/2203.01941">this paper</a> uses Residual-VQ to construct the RQ-VAE, for generating high resolution images with more compressed codes.
 
@@ -153,15 +158,55 @@ vq_layer = VectorQuantize(
 Alternatively, the <a href="https://openreview.net/forum?id=KRVnpTbx7R">DiVeQ paper</a> proposes to model quantization as the addition of a simulated quantization error to the input vector. The direction of this simulated error is aligned with the nearest codeword (if ```directional_reparam_variance``` is chosen small), and its magnitude equals the actual quantization error magnitude. In this way, the quantized output becomes a differentiable function of both input vector and selected codeword, and thus, DiVeQ provides valid gradients to learn the codebook without requiring any auxiliary losses. You can enable or disable this feature with ```directional_reparam = True/False``` in the ```VectorQuantize``` class.
 
 ```python
+import torch
 from vector_quantize_pytorch import VectorQuantize
 
 vq_layer = VectorQuantize(
     dim = 256,
-    codebook_size = 256,
+    codebook_size = 512,
     directional_reparam = True,   # Set to False to use the STE gradient estimator or True to use the DiVeQ method.
     directional_reparam_variance = 5e-3
 )
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, loss = vq_layer(x) # (1, 1024, 256), (1, 1024), (1,)
 ```
+where *loss* equals `torch.Tensor(0)`, since DiVeQ does not need any auxiliary loss to update the codebook.
+
+## Space-Filling Vector Quantization
+
+<a href="https://www.isca-archive.org/interspeech_2023/vali23_interspeech.pdf">Space-Filling VQ</a> quantizes the input to a piece-wise continuous curve constructed by connecting the line segments between subsequent codewords. Following this, <a href="https://openreview.net/forum?id=KRVnpTbx7R">Space-Filling DiVeQ</a> (SF-DiVeQ) introduces a differentiable VQ approach that updates the codebook via gradients without requiring any auxiliary losses. Due to an inherent property of SF-DiVeQ, it pulls all the codewords into the latent space, and hence prevents codebook collapse. You can use SF-DiVeQ by
+
+```python
+import torch
+from vector_quantize_pytorch import SFDIVEQ
+
+vq = SFDIVEQ(
+    dim = 256,
+    codebook_size = 512
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices, perplexity = vq(x) # (1, 1024, 256), (1, 1024), (1,)
+```
+where *perplexity* shows the codebook usage (or entropy of selected indices).
+
+In addition, Space-Filling DiVeQ can be extended to Residual VQ setting where multiple quantizers are used, which is called <a href="https://openreview.net/forum?id=KRVnpTbx7R">Residual SF-DiVeQ</a>. Similarly, Residual SF-DiVeQ does not require an auxiliary loss. You can use it by
+
+```python
+import torch
+from vector_quantize_pytorch import ResidualSFDIVEQ
+
+residual_vq = ResidualSFDIVEQ(
+    dim = 256,
+    codebook_size = 512,
+    num_quantizers = 4
+)
+
+x = torch.randn(1, 1024, 256)
+quantized, indices_all, perplexity_all = residual_vq(x) # (1, 1024, 256), (4, 1, 1024), (4,)
+```
+where *indices_all* and *perplexity_all* return the selected indices and codebook usage (entropy of selected indices) for all quantizers, respectively.
 
 ## Increasing codebook usage
 
