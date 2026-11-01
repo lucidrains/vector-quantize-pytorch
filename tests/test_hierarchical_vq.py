@@ -234,7 +234,7 @@ def test_hierarchical_vq_nested_dropout_cuts_at_a_level():
     quantized, indices, commit_loss, cutoff = hq(x, return_cutoff = True)
 
     assert cutoff is not None
-    assert 1 <= cutoff <= 2
+    assert 1 <= cutoff <= 3
     assert quantized.shape == x.shape
     assert len(indices) == 4
     assert torch.isfinite(commit_loss)
@@ -314,3 +314,219 @@ def test_hierarchical_vq_matches_vector_quantize_with_one_level():
     vq_reconstructed = vq.get_output_from_indices(vq_indices)
 
     assert torch.allclose(hq_reconstructed, rearrange(vq_reconstructed, 'b l c -> b c l'))
+
+
+@torch.no_grad()
+def test_hierarchical_vq_prefix_and_cumulative_reconstruction():
+    hq = HierarchicalVQ(
+        dim = 32,
+        codebook_size = 16,
+        scales = (1, 2, 4, 8),
+        kmeans_init = False
+    ).eval()
+
+    x = torch.randn(2, 32, 8)
+    quantized, indices, _ = hq(x)
+
+    full = hq.get_output_from_indices(indices)
+    all_cumulative = hq.get_output_from_indices(indices, return_all = True)
+
+    assert len(all_cumulative) == hq.num_levels
+    assert torch.allclose(all_cumulative[-1], full)
+
+    for cutoff, cumulative in enumerate(all_cumulative):
+        assert torch.allclose(hq.get_output_from_indices(indices, cutoff = cutoff), cumulative)
+        assert torch.allclose(hq.get_output_from_indices(indices[:cutoff + 1]), cumulative)
+
+    # one level only
+
+    first_only = hq.get_output_from_indices(indices, cutoff = 0)
+    assert first_only.shape == x.shape
+    assert torch.allclose(first_only, all_cumulative[0])
+
+
+def test_hierarchical_vq_get_output_from_indices_matches_masked_forward():
+    hq = HierarchicalVQ(
+        dim = 32,
+        codebook_size = 16,
+        scales = (1, 2, 4, 8),
+        kmeans_init = False
+    ).eval()
+
+    x = torch.randn(2, 32, 8)
+    mask = torch.ones(2, 8, dtype = torch.bool)
+    mask[1, 5:] = False
+
+    with torch.no_grad():
+        quantized, indices, _ = hq(x, mask = mask)
+        reconstructed = hq.get_output_from_indices(indices, mask = mask)
+        reconstructed_lens = hq.get_output_from_indices(indices, lens = torch.tensor([8, 5]))
+
+    assert torch.allclose(quantized, reconstructed)
+    assert torch.allclose(reconstructed, reconstructed_lens)
+
+    # all cumulative stages also respect the mask
+
+    cumulative = hq.get_output_from_indices(indices, mask = mask, return_all = True)
+
+    for stage in cumulative:
+        assert (stage[1, :, 5:] == 0.).all()
+
+
+def test_hierarchical_vq_get_output_from_indices_matches_nested_dropout():
+    torch.manual_seed(0)
+
+    hq = HierarchicalVQ(
+        dim = 32,
+        codebook_size = 16,
+        scales = (1, 2, 4, 8),
+        nested_dropout = 1.,
+        nested_dropout_min_levels = 1,
+        kmeans_init = False
+    ).eval()
+
+    # sample a nested dropout cutoff without letting the vq codebooks update
+
+    hq.training = True
+
+    x = torch.randn(2, 32, 8)
+
+    quantized, indices, commit_loss, cutoff = hq(x, return_cutoff = True)
+    reconstructed = hq.get_output_from_indices(indices, cutoff = cutoff)
+
+    assert torch.allclose(quantized, reconstructed)
+
+
+@pytest.mark.parametrize('kmeans_init', (False, True), ids = ('uniform-init', 'kmeans-init'))
+def test_hierarchical_vq_all_masked_batch_has_finite_loss(kmeans_init):
+    hq = HierarchicalVQ(
+        dim = 32,
+        codebook_size = 16,
+        scales = (1, 2, 4, 8),
+        kmeans_init = kmeans_init
+    )
+
+    x = torch.randn(2, 32, 8)
+    mask = torch.zeros(2, 8, dtype = torch.bool)
+
+    quantized, indices, commit_loss = hq(x, mask = mask)
+
+    assert torch.isfinite(quantized).all()
+    assert commit_loss.item() == 0.
+    assert torch.isfinite(commit_loss)
+
+    assert (indices[-1] == -1).all()
+
+    with torch.no_grad():
+        reconstructed = hq.get_output_from_indices(indices, mask = mask)
+
+    assert (reconstructed == 0.).all()
+
+
+def test_hierarchical_vq_text_ncm_style_training_step():
+    torch.manual_seed(0)
+
+    hq = HierarchicalVQ(
+        dim = 16,
+        codebook_size = (8, 16, 32, 32),
+        scales = (1, 2, 4, 8),
+        shared_codebook = False,
+        channel_first = False,
+        nested_dropout = 0.5,
+        nested_dropout_min_levels = 1,
+        kmeans_init = False
+    )
+
+    x = torch.randn(2, 8, 16, requires_grad = True)
+    lens = torch.tensor([8, 5])
+
+    quantized, indices, commit_loss = hq(x, lens = lens)
+
+    assert quantized.shape == x.shape
+    assert len(indices) == hq.num_levels
+    assert indices[-1].shape == (2, 8)
+    assert (indices[-1][1, 5:] == -1).all()
+    assert torch.isfinite(commit_loss)
+
+    (quantized.square().mean() + commit_loss).backward()
+
+    assert x.grad is not None
+    assert torch.isfinite(x.grad).all()
+
+    hq.eval()
+
+    with torch.no_grad():
+        reconstructed = hq.get_output_from_indices(indices, lens = lens)
+
+    assert reconstructed.shape == x.shape
+    assert (reconstructed[1, 5:] == 0.).all()
+
+
+def test_hierarchical_vq_text_ncm_style_e2e():
+    torch.manual_seed(0)
+
+    dim, vocab, seq_len = 32, 128, 16
+
+    embed = torch.nn.Embedding(vocab, dim)
+    decoder = torch.nn.Linear(dim, vocab)
+
+    hq = HierarchicalVQ(
+        dim = dim,
+        codebook_size = (64, 128, 256, 256),
+        scales = (1, 2, 4, 16),
+        shared_codebook = False,
+        channel_first = False,
+        nested_dropout = 1.,
+        nested_dropout_min_levels = 1,
+        kmeans_init = False
+    )
+
+    tokens = torch.randint(0, vocab, (2, seq_len))
+    lens = torch.tensor([16, 9])
+    mask = lens_to_mask(lens, seq_len)
+
+    x = embed(tokens)
+    quantized, indices, commit_loss, cutoff = hq(x, mask = mask, return_cutoff = True)
+
+    logits = decoder(quantized)
+    recon_loss = torch.nn.functional.cross_entropy(logits[mask], tokens[mask])
+    loss = recon_loss + commit_loss
+    loss.backward()
+
+    assert cutoff is not None
+    assert torch.isfinite(loss)
+    assert torch.isfinite(commit_loss)
+
+    assert embed.weight.grad is not None
+    assert torch.isfinite(embed.weight.grad).all()
+
+    grads = [p.grad for p in hq.parameters() if p.grad is not None]
+
+    assert grads
+    assert all(torch.isfinite(grad).all() for grad in grads)
+
+    assert [tuple(level_indices.shape) for level_indices in indices] == [(2, 1), (2, 2), (2, 4), (2, 16)]
+    assert (indices[-1][1, 9:] == -1).all()
+    assert (quantized[1, 9:] == 0.).all()
+
+    hq.eval()
+
+    with torch.no_grad():
+        stages = hq.get_output_from_indices(indices, mask = mask, return_all = True)
+        prefix = hq.get_output_from_indices(indices[:2], mask = mask)
+
+    assert len(stages) == hq.num_levels
+    assert all(stage.shape == x.shape for stage in stages)
+    assert prefix.shape == x.shape
+    assert (prefix[1, 9:] == 0.).all()
+
+
+def test_hierarchical_vq_rejects_ambiguous_quant_resi_sharing():
+    with pytest.raises(AssertionError, match = 'share_quant_resi'):
+        HierarchicalVQ(
+            dim = 32,
+            codebook_size = 16,
+            scales = (1, 2, 4),
+            share_quant_resi = 0.5,
+            kmeans_init = False
+        )

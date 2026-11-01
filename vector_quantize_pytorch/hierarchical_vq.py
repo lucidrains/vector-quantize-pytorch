@@ -40,6 +40,12 @@ class _Phi(nn.Module):
 
 
 class HierarchicalVQ(nn.Module):
+    """
+    hierarchical residual vq. supports 1d sequences, 2d feature maps, and 3d volumes.
+    for ncm-style text tokenization, use `channel_first = False`, `shared_codebook = False`,
+    and a final scale equal to the full sequence length.
+    """
+
     def __init__(
         self,
         *,
@@ -83,12 +89,7 @@ class HierarchicalVQ(nn.Module):
         for prev, curr in zip(level_shapes, level_shapes[1:]):
             assert all(a <= b for a, b in zip(prev, curr)), 'scales must be non-decreasing'
 
-        codebook_sizes = None
-
-        if isinstance(codebook_size, int):
-            codebook_sizes = (codebook_size,) * len(level_shapes)
-        else:
-            codebook_sizes = tuple(codebook_size)
+        codebook_sizes = (codebook_size,) * len(level_shapes) if isinstance(codebook_size, int) else tuple(codebook_size)
 
         assert len(codebook_sizes) == len(level_shapes)
 
@@ -104,6 +105,9 @@ class HierarchicalVQ(nn.Module):
         self.codebook_sizes = codebook_sizes
         self.nested_dropout = nested_dropout
         self.nested_dropout_min_levels = nested_dropout_min_levels
+
+        assert nested_dropout_min_levels <= self.num_levels, 'nested_dropout_min_levels cannot exceed the number of levels'
+        assert share_quant_resi <= 0. or share_quant_resi >= 1., 'share_quant_resi must be <= 0 or >= 1'
 
         # rearrange layers
 
@@ -221,8 +225,9 @@ class HierarchicalVQ(nn.Module):
         if rand.random() >= self.nested_dropout:
             return None
 
-        # keep levels 0..cutoff
-        return rand.randrange(min_levels - 1, self.num_levels - 1)
+        # keep levels 0..cutoff, including the full hierarchy
+
+        return rand.randrange(min_levels - 1, self.num_levels)
 
     def forward(
         self,
@@ -266,12 +271,20 @@ class HierarchicalVQ(nn.Module):
         for level_index, level_shape in enumerate(self.level_shapes):
             residual_down, level_mask = self.pool_residual(residual, level_shape, mask)
             level_mask = self.flatten_indices(level_mask) if exists(level_mask) else None
+            level_down = self.flatten_spatial(residual_down)
 
-            quantized, level_indices, commit_loss = self.get_vq(level_index)(
-                self.flatten_spatial(residual_down),
-                mask = level_mask,
-                **vq_kwargs
-            )
+            # fully masked level - skip vq, avoiding empty kmeans / nan masked means
+
+            if exists(level_mask) and not level_mask.any():
+                quantized = level_down.new_zeros(level_down.shape)
+                level_indices = torch.full(level_down.shape[:2], -1, dtype = torch.long, device = x.device)
+                commit_loss = level_down.new_zeros(())
+            else:
+                quantized, level_indices, commit_loss = self.get_vq(level_index)(
+                    level_down,
+                    mask = level_mask,
+                    **vq_kwargs
+                )
 
             quantized = self.unflatten_spatial[level_index](quantized)
             quantized = self.upsample_to_full(quantized, full_shape, level_index)
@@ -304,14 +317,42 @@ class HierarchicalVQ(nn.Module):
 
         return reconstruction, tuple(all_indices), commit_loss
 
-    def get_output_from_indices(self, indices, full_shape = None):
+    def get_output_from_indices(
+        self,
+        indices,
+        full_shape = None,
+        mask = None,
+        lens = None,
+        cutoff = None,
+        return_all = False
+    ):
+        """
+        decode indices back to input space.
+        `cutoff` is inclusive - `cutoff = 0` decodes only the first level.
+        `return_all = True` returns the cumulative reconstruction after each level.
+        """
+
         assert isinstance(indices, (tuple, list))
-        assert len(indices) == self.num_levels
-        assert len(shape(indices[0], 'b ...').ellipsis) == self.spatial_dims
+        assert 1 <= len(indices) <= self.num_levels
+        assert all(len(shape(level_indices, 'b ...').ellipsis) == self.spatial_dims for level_indices in indices)
+        assert not (exists(mask) and exists(lens)), 'pass either mask or lens'
+
+        if exists(cutoff):
+            assert 0 <= cutoff < len(indices)
+            indices = indices[:cutoff + 1]
 
         full_shape = self.level_shapes[-1] if not exists(full_shape) else to_level_shape(full_shape, self.spatial_dims)
         assert len(full_shape) == self.spatial_dims
 
+        if exists(lens):
+            assert self.spatial_dims == 1, 'lens is only supported for 1d sequences'
+            mask = lens_to_mask(lens, full_shape[0])
+
+        if exists(mask):
+            assert tuple(shape(mask, 'b ...').ellipsis) == full_shape, 'mask must match full_shape'
+            mask = mask.bool()
+
+        cumulative = []
         reconstructed = None
 
         for level_index, level_indices in enumerate(indices):
@@ -323,5 +364,14 @@ class HierarchicalVQ(nn.Module):
             q = self.upsample_to_full(q, full_shape, level_index)
 
             reconstructed = q if reconstructed is None else reconstructed + q
+            cumulative.append(reconstructed)
 
-        return self.to_channel_last(reconstructed)
+        if exists(mask):
+            cumulative = [
+                einx.where('b ..., b c ..., -> b c ...', mask.to(reconstruction.device), reconstruction, 0.)
+                for reconstruction in cumulative
+            ]
+
+        outputs = tuple(self.to_channel_last(reconstruction) for reconstruction in cumulative)
+
+        return outputs if return_all else outputs[-1]
