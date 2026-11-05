@@ -187,6 +187,8 @@ quantized, indices, commit_loss = vq(x)
 # (1, 1024, 256), (1, 1024), (1,)
 ```
 
+`vq.get_output_from_indices(indices)` projects decoded codes back to `dim` and preserves the configured channel-last, channel-first, image or 3D feature-map layout.
+
 ### Cosine similarity
 
 The <a href="https://openreview.net/forum?id=pfNyExj7z2">Improved VQGAN paper</a> also proposes to l2 normalize the codes and the encoded vectors, which boils down to using cosine similarity for the distance. They claim enforcing the vectors on a sphere leads to improvements in code usage and downstream reconstruction. You can turn this on by setting `use_cosine_sim = True`
