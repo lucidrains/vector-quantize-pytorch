@@ -1038,7 +1038,12 @@ class VectorQuantize(Module):
         return codes
 
     def get_output_from_indices(self, indices):
+        """Decode indices to the same feature layout as the forward output."""
         codes = self.get_codes_from_indices(indices)
+        if not self.has_projections:
+            return codes
+        if not self.channel_last or self.accept_image_fmap or self.accept_3d_fmap:
+            return self.project_out(codes.movedim(1, -1)).movedim(-1, 1)
         return self.project_out(codes)
 
     def update_in_place_optimizer(self):
