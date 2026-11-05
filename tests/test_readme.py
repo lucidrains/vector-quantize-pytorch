@@ -186,7 +186,7 @@ def test_vq_multiheaded():
 
     vq = VectorQuantize(
         dim = 256,
-        codebook_dim = 32,                  # a number of papers have shown smaller codebook dimension to be acceptable
+        codebook_dim = 16,                  # a number of papers have shown smaller codebook dimension to be acceptable
         heads = 8,                          # number of heads to vector quantize, codebook shared across all heads
         separate_codebook_per_head = True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
         codebook_size = 8196,
@@ -194,7 +194,8 @@ def test_vq_multiheaded():
     )
 
     img_fmap = torch.randn(1, 256, 32, 32)
-    quantized, indices, loss = vq(img_fmap)
+    quantized, indices, loss = vq.eval()(img_fmap)
+    assert torch.allclose(quantized, vq.get_output_from_indices(indices))
 
 def test_rq():
     from vector_quantize_pytorch import RandomProjectionQuantizer
@@ -496,6 +497,7 @@ def test_vq_3d():
 
     quantizer = VectorQuantize(
         dim = 64,
+        codebook_dim = 16,
         codebook_size = 512,                # codebook size
         accept_3d_fmap=True,
     )
