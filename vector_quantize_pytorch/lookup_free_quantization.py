@@ -360,7 +360,7 @@ class LFQ(Module):
                 if exists(mask):
                     input_for_entropy = original_input[mask]
 
-                input_for_entropy = rearrange(input_for_entropy, 'b n ... -> (b n) ...')
+                input_for_entropy = rearrange(input_for_entropy, '... c d -> (...) c d')
 
                 if self.frac_per_sample_entropy < 1.:
                     # account for mask
