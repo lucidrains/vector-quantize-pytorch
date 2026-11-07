@@ -188,15 +188,27 @@ class LatentQuantize(Module):
     def codes_to_indices(self, zhat: Tensor) -> Tensor:
         """Converts a `code` which contains the number per latent to an index in the codebook."""
         assert zhat.shape[-1] == self.codebook_dim
-        zhat = self._scale_and_shift(zhat)
-        return (zhat * self._basis).sum(dim=-1).to(int32)
+        level_indices = torch.stack(
+            [
+                torch.abs(zhat[..., i, None] - self.values_per_latent[i]).argmin(dim=-1)
+                for i in range(self.codebook_dim)
+            ],
+            dim=-1,
+        )
+        return (level_indices * self._basis).sum(dim=-1).to(int32)
 
     def indices_to_codes(self, indices: Tensor, project_out=True) -> Tensor:
         """Inverse of `codes_to_indices`."""
 
         indices = rearrange(indices, "... -> ... 1")
         codes_non_centered = (indices // self._basis) % self._levels
-        codes = self._scale_and_shift_inverse(codes_non_centered)
+        codes = torch.stack(
+            [
+                self.values_per_latent[i][codes_non_centered[..., i]]
+                for i in range(self.codebook_dim)
+            ],
+            dim=-1,
+        )
 
         if self.keep_num_codebooks_dim:
             codes = rearrange(codes, "... c d -> ... (c d)")
