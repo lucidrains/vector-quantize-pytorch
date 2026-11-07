@@ -577,7 +577,12 @@ class ResidualVQ(Module):
 
         if is_beam_search:
 
-            quantized_out, all_indices, all_losses, all_residuals = [t[..., 0, :] for t in (quantized_out, all_indices, all_losses, all_residuals)]
+            quantized_out, all_indices, all_losses, all_residuals = (
+                quantized_out[..., 0, :],
+                all_indices[..., 0, :],
+                all_losses[..., 0, :],
+                all_residuals[..., 0, :, :],
+            )
 
             # handle commit loss, which should be the average
 
