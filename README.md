@@ -209,7 +209,7 @@ quantized, indices, commit_loss = vq(x)
 
 ### Expiring stale codes
 
-Finally, the SoundStream paper has a scheme where they replace codes that have hits below a certain threshold with randomly selected vector from the current batch. You can set this threshold with `threshold_ema_dead_code` keyword.
+Finally, the SoundStream paper has a scheme where it replaces codes that have hits below a certain threshold (expressed as a ratio of the mean cluster size) with randomly selected vectors from the current batch. You can set this threshold with the `dead_code_threshold_ratio` keyword.
 
 ```python
 import torch
@@ -218,7 +218,7 @@ from vector_quantize_pytorch import VectorQuantize
 vq = VectorQuantize(
     dim = 256,
     codebook_size = 512,
-    threshold_ema_dead_code = 2  # should actively replace any codes that have an exponential moving average cluster size less than 2
+    dead_code_threshold_ratio = 0.1  # should actively replace any codes that have an exponential moving average cluster size less than 10% of the mean cluster size
 )
 
 x = torch.randn(1, 1024, 256)
@@ -912,5 +912,17 @@ assert loss.item() >= 0
     archivePrefix = {arXiv},
     primaryClass = {cs.LG},
     url     = {https://arxiv.org/abs/2602.17133},
+}
+```
+
+```bibtex
+@misc{bessa2026emeansoutperformingkmeansin,
+    title   = {e-means: outperforming k-means (in one-tenth the epochs)},
+    author  = {Swann Bessa and Pierre-Emmanuel Mazaré and Gergely Szilvasy and Hugo Touvron and David Picard and Matthijs Douze and Hervé Jégou},
+    year    = {2026},
+    eprint  = {2611.09501},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2611.09501},
 }
 ```

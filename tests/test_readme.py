@@ -175,7 +175,7 @@ def test_vq_expire_code():
     vq = VectorQuantize(
         dim = 256,
         codebook_size = 512,
-        threshold_ema_dead_code = 2  # should actively replace any codes that have an exponential moving average cluster size less than 2
+        dead_code_threshold_ratio = 0.1  # should actively replace any codes that have an exponential moving average cluster size less than 10% of the mean cluster size
     )
 
     x = torch.randn(1, 1024, 256)
@@ -235,7 +235,7 @@ def test_directional_reparam():
         dim = 256,
         codebook_size = 512,                # codebook size
         directional_reparam = True,
-        threshold_ema_dead_code = 2
+        dead_code_threshold_ratio = 0.1
     )
 
     x = torch.randn(1, 1024, 256).requires_grad_()
@@ -247,7 +247,7 @@ def test_directional_reparam():
         num_quantizers = 8,
         codebook_size = 128,
         directional_reparam = True,
-        threshold_ema_dead_code = 2
+        dead_code_threshold_ratio = 0.1
     )
 
     quantized, indices, _ = rq(x)
@@ -587,7 +587,7 @@ def test_expire_codes_no_duplicates_when_batch_smaller_than_codebook():
     vq = VectorQuantize(
         dim = 32,
         codebook_size = 1024,
-        threshold_ema_dead_code = 2
+        dead_code_threshold_ratio = 0.1
     )
 
     for _ in range(20):

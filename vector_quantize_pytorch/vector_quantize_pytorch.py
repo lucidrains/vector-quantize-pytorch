@@ -151,10 +151,6 @@ def gumbel_sample(
 
     return ind, one_hot
 
-def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
-    denom = x.sum(dim = dim, keepdim = True)
-    return (x + eps) / (denom + n_categories * eps)
-
 def sample_vectors(samples, num):
     num_samples, device = samples.shape[0], samples.device
     if num_samples >= num:
@@ -359,7 +355,9 @@ class Codebook(Module):
         sync_kmeans = True,
         decay = 0.8,
         eps = 1e-5,
-        threshold_ema_dead_code = 2,
+        dead_code_threshold_ratio = 0.1,
+        reset_cluster_size_ratio = None,
+        threshold_ema_dead_code = None,
         reset_cluster_size = None,
         use_ddp = False,
         learnable_codebook = False,
@@ -395,10 +393,20 @@ class Codebook(Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
 
-        self.threshold_ema_dead_code = threshold_ema_dead_code
-        self.has_dead_code_replacement = threshold_ema_dead_code > 0
+        if exists(threshold_ema_dead_code):
+            logger.warning('`threshold_ema_dead_code` is deprecated, please use `dead_code_threshold_ratio` (a ratio in [0, 1) of the mean cluster size, e.g. 0.1) instead')
+            dead_code_threshold_ratio = threshold_ema_dead_code / codebook_size if threshold_ema_dead_code >= 1. else threshold_ema_dead_code
 
-        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
+        if exists(reset_cluster_size):
+            logger.warning('`reset_cluster_size` is deprecated, please use `reset_cluster_size_ratio` instead')
+            reset_cluster_size_ratio = reset_cluster_size / codebook_size if reset_cluster_size >= 1. else reset_cluster_size
+
+        assert 0. <= dead_code_threshold_ratio < 1.
+
+        self.dead_code_threshold_ratio = dead_code_threshold_ratio
+        self.has_dead_code_replacement = dead_code_threshold_ratio > 0.
+
+        self.reset_cluster_size_ratio = default(reset_cluster_size_ratio, dead_code_threshold_ratio)
 
         assert callable(gumbel_sample)
         self.gumbel_sample = gumbel_sample
@@ -415,8 +423,8 @@ class Codebook(Module):
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
         self.register_buffer('initted', tensor(not kmeans_init))
-        self.register_buffer('cluster_size', torch.ones(num_codebooks, codebook_size))
-        self.register_buffer('embed_avg', embed.clone())
+        self.register_buffer('cluster_size', torch.zeros(num_codebooks, codebook_size))
+        self.register_buffer('embed_avg', torch.zeros(num_codebooks, codebook_size, dim))
 
         self.learnable_codebook = learnable_codebook
         if learnable_codebook:
@@ -458,6 +466,9 @@ class Codebook(Module):
             c = data.shape[0]
             data = rearrange(data[mask], '(c n) d -> c n d', c = c)
 
+        if is_empty(data):
+            return
+
         num_samples = data.shape[-2]
 
         if num_samples < self.codebook_size:
@@ -472,11 +483,7 @@ class Codebook(Module):
             all_reduce_fn = self.kmeans_all_reduce_fn
         )
 
-        embed_sum = embed * rearrange(cluster_size, '... -> ... 1')
-
-        self.embed_avg.data.copy_(embed_sum)
-        self.cluster_size.data.copy_(cluster_size)
-        self.update_ema()
+        self.embed.data.copy_(embed)
         self.initted.data.copy_(tensor(True))
 
     @torch.jit.ignore
@@ -518,6 +525,9 @@ class Codebook(Module):
             c = data.shape[0]
             data = rearrange(data[mask], '(c n) d -> c n d', c = c)
 
+        if is_empty(data):
+            return
+
         # calculate batch mean and variance
 
         if not self.sync_affine_param:
@@ -552,6 +562,8 @@ class Codebook(Module):
         if self.use_cosine_sim:
             batch_samples = l2norm(batch_samples)
 
+        mean_cluster_size = self.cluster_size.mean(dim = -1).clamp(min = self.eps)
+
         for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
             device = samples.device
 
@@ -564,12 +576,16 @@ class Codebook(Module):
             num_samples = samples.shape[0]
             num_dead = mask.sum().item()
 
+            if num_dead == 0:
+                continue
+
             # when there are more dead codes than samples, sampling with replacement would duplicate codes
             # so only replace a random subset of the dead codes now, deferring the rest to later steps
 
             if self.replace_sample_fn is batched_sample_vectors and num_dead > num_samples:
                 dead_indices = mask.nonzero(as_tuple = True)[0]
-                dead_indices = dead_indices[torch.randperm(num_dead, device = device)[:num_samples]]
+                dead_indices = dead_indices[torch.randperm(num_dead, device = device)]
+                dead_indices = dead_indices[self.cluster_size[ind, dead_indices].argsort(stable = True)[:num_samples]]
 
                 mask = torch.zeros_like(mask)
                 mask[dead_indices] = True
@@ -580,15 +596,18 @@ class Codebook(Module):
 
             sampled = sampled.to(self.embed.data)
 
+            reset_cluster_size = mean_cluster_size[ind] * self.reset_cluster_size_ratio
+
             self.embed.data[ind][mask] = sampled
-            self.cluster_size.data[ind][mask] = self.reset_cluster_size
-            self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
+            self.cluster_size.data[ind][mask] = reset_cluster_size
+            self.embed_avg.data[ind][mask] = sampled * reset_cluster_size
 
     def expire_codes_(self, batch_samples, seq_mask = None):
         if not self.has_dead_code_replacement or not self.training:
             return
 
-        expired_codes = self.cluster_size < self.threshold_ema_dead_code
+        mean_cluster_size = self.cluster_size.mean(dim = -1, keepdim = True)
+        expired_codes = self.cluster_size < (mean_cluster_size * self.dead_code_threshold_ratio)
 
         if not torch.any(expired_codes):
             return
@@ -597,9 +616,7 @@ class Codebook(Module):
         self.replace(batch_samples, batch_mask = expired_codes, seq_mask = seq_mask)
 
     def update_ema(self):
-        cluster_size = laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * self.cluster_size.sum(dim = -1, keepdim = True)
-
-        embed_normalized = self.embed_avg / rearrange(cluster_size, '... -> ... 1')
+        embed_normalized = (self.embed_avg + self.embed * self.eps) / rearrange(self.cluster_size + self.eps, '... -> ... 1')
 
         if self.use_cosine_sim:
             embed_normalized = l2norm(embed_normalized)
@@ -614,7 +631,7 @@ class Codebook(Module):
         ema_update_weight: Tensor | Callable | None = None,
         accum_ema_update = False
     ):
-        if self.affine_param:
+        if self.affine_param and exists(self.batch_mean):
             codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
             flatten = (flatten - self.batch_mean) * (codebook_std / batch_std) + self.codebook_mean
@@ -744,7 +761,7 @@ class Codebook(Module):
 
         # affine params
 
-        if self.affine_param:
+        if self.affine_param and exists(self.batch_mean):
             codebook_std = self.codebook_variance.clamp(min = 1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min = 1e-5).sqrt()
             embed = (embed - self.codebook_mean) * (batch_std / codebook_std) + self.batch_mean
@@ -835,7 +852,10 @@ class VectorQuantize(Module):
         sync_kmeans = True,
         use_cosine_sim = False,
         layernorm_after_project_in = False, # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
-        threshold_ema_dead_code = 0,
+        dead_code_threshold_ratio = 0.,
+        reset_cluster_size_ratio = None,
+        threshold_ema_dead_code = None,
+        reset_cluster_size = None,
         channel_last = True,
         accept_image_fmap = False,
         accept_3d_fmap = False,
@@ -918,7 +938,8 @@ class VectorQuantize(Module):
         assert at_most_one_of(straight_through, rotation_trick, directional_reparam)
         self.rotation_trick = rotation_trick
 
-        assert not (directional_reparam and threshold_ema_dead_code == 0), 'periodic dead code replacement should be enabled when differential reparam method is turned on'
+        has_dead_code_threshold = dead_code_threshold_ratio > 0. or (exists(threshold_ema_dead_code) and threshold_ema_dead_code > 0.)
+        assert not (directional_reparam and not has_dead_code_threshold), 'periodic dead code replacement should be enabled when differential reparam method is turned on'
         self.directional_reparam = directional_reparam
         self.directional_reparam_variance = directional_reparam_variance
 
@@ -954,7 +975,10 @@ class VectorQuantize(Module):
             sync_kmeans = sync_kmeans,
             decay = decay,
             eps = eps,
+            dead_code_threshold_ratio = dead_code_threshold_ratio,
+            reset_cluster_size_ratio = reset_cluster_size_ratio,
             threshold_ema_dead_code = threshold_ema_dead_code,
+            reset_cluster_size = reset_cluster_size,
             use_ddp = sync_codebook,
             learnable_codebook = has_codebook_orthogonal_loss or learnable_codebook,
             sample_codebook_temp = sample_codebook_temp,
