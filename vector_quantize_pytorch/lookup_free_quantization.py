@@ -7,7 +7,7 @@ An entropy penalty is used to encourage utilization.
 """
 
 from math import log2, ceil
-from functools import partial, cache
+from functools import partial
 from collections import namedtuple
 from contextlib import nullcontext
 
@@ -30,7 +30,6 @@ LossBreakdown = namedtuple('LossBreakdown', ['per_sample_entropy', 'batch_entrop
 
 # distributed helpers
 
-@cache
 def is_distributed():
     return dist.is_initialized() and dist.get_world_size() > 1
 
@@ -38,7 +37,7 @@ def maybe_distributed_mean(t):
     if not is_distributed():
         return t
 
-    dist_nn.all_reduce(t)
+    t = dist_nn.all_reduce(t)
     t = t / dist.get_world_size()
     return t
 
