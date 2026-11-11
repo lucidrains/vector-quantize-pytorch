@@ -1381,7 +1381,7 @@ class VectorQuantize(Module):
 
                     elif exists(mask):
                         # with variable lengthed sequences
-                        commit_loss = F.mse_loss(commit_quantize, orig_input, reduction = 'none')
+                        commit_loss = F.mse_loss(commit_quantize, x, reduction = 'none')
 
                         loss_mask = mask
                         if is_multiheaded:
