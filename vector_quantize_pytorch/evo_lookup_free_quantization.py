@@ -267,6 +267,7 @@ class EvoLFQ(Module):
         best_gene = None
 
         for _ in range(generations):
+            evaluated_pop_bits = pop_bits
             pop_bits, fitnesses = self.step(
                 pop_bits,
                 fitness_fn,
@@ -279,7 +280,7 @@ class EvoLFQ(Module):
 
             if max_fit > best_fitness:
                 best_fitness = max_fit
-                best_gene = pop_bits[max_fit_idx].clone()
+                best_gene = evaluated_pop_bits[max_fit_idx].clone()
 
             best_decoded = None
             if return_best_decoded:
