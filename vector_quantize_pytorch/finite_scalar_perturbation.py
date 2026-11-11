@@ -56,11 +56,16 @@ def normal_inv_act(p: torch.Tensor) -> torch.Tensor:
 
 
 def laplace_act(z: torch.Tensor) -> torch.Tensor:
-    return 0.5 * (1.0 + torch.sign(z) * (1.0 - torch.exp(-torch.abs(z))))
+    # Clamp only inactive branches; keep the origin inside the active domain.
+    left = 0.5 * torch.exp(z.clamp(max=1.0))
+    right = 1.0 - 0.5 * torch.exp((-z).clamp(max=1.0))
+    return torch.where(z < 0.0, left, right)
 
 
 def laplace_inv_act(p: torch.Tensor) -> torch.Tensor:
-    return -torch.sign(p - 0.5) * torch.log(1.0 - 2.0 * torch.abs(p - 0.5))
+    left = torch.log((2.0 * p).clamp(max=2.0))
+    right = -torch.log((2.0 * (1.0 - p)).clamp(max=2.0))
+    return torch.where(p < 0.5, left, right)
 
 
 def cauchy_act(z: torch.Tensor) -> torch.Tensor:
