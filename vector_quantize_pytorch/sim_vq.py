@@ -89,8 +89,7 @@ class SimVQ(Module):
     ):
         implicit_codebook = self.codebook
 
-        frozen_codes = get_at('[c] d, b ... -> b ... d', self.frozen_codebook, indices)
-        quantized = self.code_transform(frozen_codes)
+        quantized = get_at('[c] d, b ... -> b ... d', implicit_codebook, indices)
 
         if self.channel_first:
             quantized = rearrange(quantized, 'b ... d -> b d ...')
