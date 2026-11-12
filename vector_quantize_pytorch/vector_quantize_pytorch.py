@@ -147,6 +147,8 @@ def gumbel_sample(
         return ind, one_hot
 
     π1 = (logits / temperature).softmax(dim = dim)
+    if exists(topk):
+        π1 = π1.unsqueeze(-2)
     one_hot = one_hot + π1 - π1.detach()
 
     return ind, one_hot
