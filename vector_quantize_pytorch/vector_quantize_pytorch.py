@@ -1251,7 +1251,8 @@ class VectorQuantize(Module):
                 if is_multiheaded:
                     loss_mask = repeat(mask, 'b n -> c (b h) n', c = loss.shape[0], h = loss.shape[1] // mask.shape[0])
 
-                loss = loss[loss_mask].mean()
+                loss = loss[loss_mask]
+                loss = loss.sum() / max(loss.numel(), 1)
 
             else:
                 loss = F.mse_loss(quantize, x.detach())
@@ -1306,8 +1307,10 @@ class VectorQuantize(Module):
             ce_loss = F.cross_entropy(
                 rearrange(distances, dist_einops_eq, b = shape[0]),
                 codes,
-                ignore_index = -1
+                ignore_index = -1,
+                reduction = 'sum'
             )
+            ce_loss = ce_loss / (codes != -1).sum().clamp(min = 1)
 
             return ce_loss
 
@@ -1387,7 +1390,8 @@ class VectorQuantize(Module):
                         if is_multiheaded:
                             loss_mask = repeat(loss_mask, 'b n -> c (b h) n', c = commit_loss.shape[0], h = commit_loss.shape[1] // mask.shape[0])
 
-                        commit_loss = commit_loss[loss_mask].mean()
+                        commit_loss = commit_loss[loss_mask]
+                        commit_loss = commit_loss.sum() / max(commit_loss.numel(), 1)
                     else:
                         commit_loss = F.mse_loss(commit_quantize, x)
 
