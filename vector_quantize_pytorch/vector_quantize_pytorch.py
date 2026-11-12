@@ -313,6 +313,10 @@ def rotate_to(src, tgt):
 
     rotated = rotated_tgt * safe_div(norm_tgt, norm_src).detach()
 
+    # Epsilon-clamped normalization can change the forward value for tiny inputs.
+    # Keep the selected code exactly, while retaining the rotation-trick gradient.
+    rotated = tgt.detach() + (rotated - rotated.detach())
+
     return inverse(rotated)
 
 # directional reparameterization (DiVeQ) method to learn the codebook
