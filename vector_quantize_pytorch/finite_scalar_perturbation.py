@@ -91,8 +91,11 @@ def build_cdf_act(act_name: str) -> tuple[Callable, Callable]:
 
 
 def batch_stats(batch: torch.Tensor, eps: float = 1e-8):
+    if batch.dtype in (torch.float16, torch.bfloat16):
+        batch = batch.float()
+
     variance, mean = torch.var_mean(batch, dim=0, unbiased=True)
-    std = variance.sqrt().clamp_min(eps)
+    std = variance.clamp_min(eps ** 2).sqrt()
     z_scores = (batch - mean) / std
     skewness = torch.mean(z_scores.pow(3), dim=0)
     kurtosis = torch.mean(z_scores.pow(4), dim=0) - 3.0
