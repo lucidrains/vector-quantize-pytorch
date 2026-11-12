@@ -1296,6 +1296,8 @@ class VectorQuantize(Module):
         # used for (1) naturalspeech2 training residual vq latents to be close to the correct codes and (2) cross-entropy based commitment loss
 
         def calculate_ce_loss(codes):
+            codes = codes.reshape(shape[0], -1, heads) if is_multiheaded else codes.reshape(shape[0], -1)
+
             if not is_multiheaded:
                 dist_einops_eq = '1 b n l -> b l n'
             elif self.separate_codebook_per_head:
