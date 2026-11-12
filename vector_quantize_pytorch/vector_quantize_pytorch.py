@@ -1354,7 +1354,15 @@ class VectorQuantize(Module):
 
             if self.has_codebook_diversity_loss:
                 prob = (distances * self.codebook_diversity_temperature).softmax(dim = -1)
-                avg_prob = reduce(prob, '... n l -> n l', 'mean')
+
+                if exists(mask):
+                    diversity_mask = repeat(mask, 'b n -> c (b h) n', c = prob.shape[0], h = prob.shape[1] // mask.shape[0])
+                    prob = prob.masked_fill(~rearrange(diversity_mask, '... -> ... 1'), 0.)
+                    num_tokens = diversity_mask.sum(dim = (1, 2)).clamp(min = 1)
+                    avg_prob = prob.sum(dim = (1, 2)) / rearrange(num_tokens, 'c -> c 1')
+                else:
+                    avg_prob = reduce(prob, 'c ... l -> c l', 'mean')
+
                 codebook_diversity_loss = -entropy(avg_prob).mean()
 
                 loss = loss + codebook_diversity_loss * self.codebook_diversity_loss_weight
