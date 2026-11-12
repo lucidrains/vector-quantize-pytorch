@@ -1174,7 +1174,8 @@ class VectorQuantize(Module):
         assert not (exists(mask) and exists(lens))
 
         if exists(lens):
-            mask = lens_to_mask(lens, x.shape[1])
+            seq_len = x.shape[1] if self.channel_last else x.shape[-1]
+            mask = lens_to_mask(lens, seq_len)
 
         # handle one token given
 
