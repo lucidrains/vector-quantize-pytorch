@@ -1311,11 +1311,6 @@ class VectorQuantize(Module):
 
             return ce_loss
 
-        # if returning cross entropy loss on codes that were passed in
-
-        if return_loss:
-            return quantize, calculate_ce_loss(indices)
-
         # transform embedding indices
 
         if is_multiheaded:
@@ -1335,12 +1330,12 @@ class VectorQuantize(Module):
 
         # aggregate loss
 
-        loss = self.zero
+        loss = calculate_ce_loss(indices) if return_loss else self.zero
 
-        if self.training:
+        if self.training and not return_loss:
             loss.requires_grad_()
 
-        if is_topk and not self.training:
+        if is_topk and not self.training and not return_loss:
             commit_loss = F.mse_loss(quantize, x, reduction = 'none')
             commit_loss = reduce(commit_loss, '... k d -> ... k', 'mean')
 
@@ -1349,7 +1344,7 @@ class VectorQuantize(Module):
 
             loss = commit_loss * self.commitment_weight if self.has_commitment_loss else commit_loss
 
-        if self.training:
+        if self.training and not return_loss:
             # calculate codebook diversity loss (negative of entropy) if needed
 
             if self.has_codebook_diversity_loss:
@@ -1474,6 +1469,9 @@ class VectorQuantize(Module):
 
         if only_one:
             quantize = rearrange(quantize, 'b 1 ... d -> b ... d')
+
+        if return_loss:
+            return quantize, loss
 
         if not return_loss_breakdown:
             return quantize, embed_ind, loss
