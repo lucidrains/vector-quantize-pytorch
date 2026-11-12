@@ -281,6 +281,7 @@ class FSP(Module):
         return q_act_z, level_indices.detach()
 
     def level_indices_to_indices(self, level_indices):
+        level_indices = level_indices.to(int32)
         return (level_indices * self._basis).sum(dim=-1).to(int32)
 
     def indices_to_level_indices(self, indices):
