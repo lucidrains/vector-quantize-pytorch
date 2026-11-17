@@ -380,6 +380,9 @@ xhat, indices = quantizer(x)
 assert torch.all(xhat == quantizer.indices_to_codes(indices))
 ```
 
+For large grids, pass `materialize_codebook = False` to `FSQ` or `ResidualFSQ`. Encoding and decoding indices then work directly with the levels, without storing every code. Residual quantizers can still enumerate the full grid through `.codebooks` if requested. Codebooks with more than 2³¹ entries use 64-bit indices.
+
+
 An improvised Residual FSQ, for an attempt to improve audio encoding.
 
 Credit goes to [@sekstini](https://github.com/sekstini) for originally incepting the idea [here](https://github.com/lucidrains/vector-quantize-pytorch/pull/74#issuecomment-1742048597)

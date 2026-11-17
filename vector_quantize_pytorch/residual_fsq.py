@@ -125,6 +125,9 @@ class ResidualFSQ(Module):
     @property
     def codebooks(self):
         codebooks = [layer.implicit_codebook for layer in self.layers]
+        if codebooks[0] is None:
+            indices = torch.arange(self.codebook_size, device = self.scales.device)
+            codebooks = [layer._indices_to_codes(indices).to(self.scales) for layer in self.layers]
         codebooks = torch.stack(codebooks, dim = 0)
         return codebooks
 
@@ -148,7 +151,10 @@ class ResidualFSQ(Module):
         mask = indices == -1
         indices = indices.masked_fill(mask, 0) # have it fetch a dummy code to be masked out later
 
-        all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
+        if self.layers[0].implicit_codebook is None:
+            all_codes = self.layers[0]._indices_to_codes(rearrange(indices, 'b n q -> q b n')).to(self.scales)
+        else:
+            all_codes = get_at('q [c] d, b n q -> q b n d', self.codebooks, indices)
 
         # mask out any codes that were dropout-ed
 
