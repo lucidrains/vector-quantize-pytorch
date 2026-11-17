@@ -11,7 +11,7 @@ from typing import List, Tuple
 import torch
 import torch.nn as nn
 from torch.nn import Module
-from torch import tensor, Tensor, int32, tanh, atanh, clamp
+from torch import tensor, Tensor, int32, int64, tanh, atanh, clamp
 from torch.amp import autocast
 
 import einx
@@ -92,9 +92,10 @@ class FSQ(Module):
         self.register_buffer('_levels', _levels, persistent = False)
 
         codebook_size = math.prod(levels)
-        if return_indices and codebook_size > 2 ** 63:
-            raise ValueError('codebook indices do not fit in int64')
-        index_dtype = torch.int64 if return_indices and codebook_size > 2 ** 31 else int32
+
+        assert codebook_size <= 2 ** 63, 'codebook indices do not fit in int64'
+
+        index_dtype = int64 if codebook_size > 2 ** 31 else int32
         _basis = torch.cumprod(tensor([1] + levels[:-1]), dim = 0, dtype = index_dtype)
         self.register_buffer('_basis', _basis, persistent = False)
 
@@ -126,9 +127,9 @@ class FSQ(Module):
         self.has_projections = has_projections
 
         self.return_indices = return_indices
+        self.codebook_size = codebook_size
 
         if return_indices:
-            self.codebook_size = codebook_size
             implicit_codebook = self._indices_to_codes(torch.arange(codebook_size)) if materialize_codebook else None
             self.register_buffer('implicit_codebook', implicit_codebook, persistent = False)
 
