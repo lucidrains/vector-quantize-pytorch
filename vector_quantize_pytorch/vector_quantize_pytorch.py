@@ -703,7 +703,9 @@ class Codebook(Module):
             mask = repeat(mask, 'b n -> c (b h n)', c = flatten.shape[0], h = flatten.shape[-2] // (mask.shape[0] * mask.shape[1]))
 
         embed_ind, _ = pack_one(embed_ind, 'h *')
-        embed_ind = embed_ind.masked_fill(embed_ind == -1, 0)
+        valid_indices = embed_ind != -1
+        mask = valid_indices if not exists(mask) else mask & valid_indices
+        embed_ind = embed_ind.masked_fill(~valid_indices, 0)
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
 
         self.update_codebook(flatten, embed_onehot, mask = mask, ema_update_weight = ema_update_weight, accum_ema_update = accum_ema_update, ema_update = ema_update)
