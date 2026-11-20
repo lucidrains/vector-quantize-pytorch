@@ -407,6 +407,9 @@ class ResidualVQ(Module):
 
         is_beam_search = exists(beam_size) and beam_size > 1
 
+        assert not (return_loss and is_beam_search), \
+            'beam search is not supported when supplying indices; set beam_size = 1'
+
         # projecting in
 
         x = self.project_in(x)
@@ -485,6 +488,9 @@ class ResidualVQ(Module):
             if return_loss:
                 layer_indices = indices[..., quantizer_index]
 
+                if x.ndim == 2:
+                    layer_indices = rearrange(layer_indices, 'b -> b 1')
+
             # setup the transform code function to be passed into VectorQuantize forward
 
             if exists(maybe_mlp):
@@ -496,7 +502,7 @@ class ResidualVQ(Module):
 
             # vector quantize forward
 
-            quantized, embed_indices, loss = vq(
+            quantized, *rest = vq(
                 residual,
                 mask = mask,
                 indices = layer_indices,
@@ -506,12 +512,15 @@ class ResidualVQ(Module):
                 topk = beam_size if is_beam_search else None
             )
 
-            # cross entropy loss for some old paper
+            # cross entropy loss for supervised codes (NaturalSpeech 2)
 
             if return_loss:
-                ce_loss = first(embed_indices)
-                ce_losses.append(ce_loss)
-                continue
+                ce_losses.append(first(rest))
+
+                if x.ndim == 2:
+                    quantized = rearrange(quantized, 'b 1 d -> b d')
+            else:
+                embed_indices, loss = rest
 
             # handle expanding first residual if doing beam search
 
@@ -529,6 +538,9 @@ class ResidualVQ(Module):
 
             residual = residual - frac_gradient(quantized, self.quant_grad_frac)
             quantized_out = quantized_out + quantized
+
+            if return_loss:
+                continue
 
             # handle sort and topk beams
 
