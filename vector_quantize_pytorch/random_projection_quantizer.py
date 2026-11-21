@@ -36,6 +36,7 @@ class RandomProjectionQuantizer(nn.Module):
 
         self.vq = VectorQuantize(
             dim = codebook_dim * num_codebooks,
+            codebook_dim = codebook_dim,
             heads = num_codebooks,
             codebook_size = codebook_size,
             use_cosine_sim = True,
